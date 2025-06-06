@@ -9,7 +9,7 @@ version = "0.1.4"
 
 android {
     namespace 'is.xyz.mpv'
-    compileSdk 34
+    compileSdk 35
 
     defaultConfig {
         minSdkVersion 21
@@ -34,6 +34,7 @@ android {
 }
 
 dependencies {
+    implementation "org.jetbrains.kotlin:kotlin-stdlib:$kotlin_version"
     implementation 'androidx.appcompat:appcompat:1.7.0'
 }
 
