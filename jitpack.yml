@@ -1,7 +1,7 @@
 jdk:
   - openjdk17
 env:
-  RELEASE_VERSION: "v0.1.4"
+  RELEASE_VERSION: "v0.1.5"
 before_install:
   - mkdir -p app/build/outputs/aar
   - wget -O app/build/outputs/aar/mpv-android-lib-$RELEASE_VERSION.aar https://github.com/abdallahmehiz/mpv-android/releases/download/$RELEASE_VERSION/mpv-android-lib-$RELEASE_VERSION.aar
