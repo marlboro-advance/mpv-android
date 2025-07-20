@@ -27,7 +27,6 @@ object MPVLib {
 
     external fun grabThumbnail(dimension: Int): Bitmap?
 
-    // FIXME: get methods are actually nullable
     external fun getPropertyInt(property: String): Int?
     external fun setPropertyInt(property: String, value: Int)
     external fun getPropertyDouble(property: String): Double?
@@ -41,44 +40,52 @@ object MPVLib {
 
     private val observers: MutableList<EventObserver> = ArrayList()
 
+    @JvmStatic
     fun addObserver(o: EventObserver) {
         synchronized(observers) { observers.add(o) }
     }
 
+    @JvmStatic
     fun removeObserver(o: EventObserver) {
         synchronized(observers) { observers.remove(o) }
     }
 
+    @JvmStatic
     fun eventProperty(property: String, value: Long) {
         synchronized(observers) {
             for (o in observers) o.eventProperty(property, value)
         }
     }
 
+    @JvmStatic
     fun eventProperty(property: String, value: Boolean) {
         synchronized(observers) {
             for (o in observers) o.eventProperty(property, value)
         }
     }
 
+    @JvmStatic
     fun eventProperty(property: String, value: Double) {
         synchronized(observers) {
             for (o in observers) o.eventProperty(property, value)
         }
     }
 
+    @JvmStatic
     fun eventProperty(property: String, value: String) {
         synchronized(observers) {
             for (o in observers) o.eventProperty(property, value)
         }
     }
 
+    @JvmStatic
     fun eventProperty(property: String) {
         synchronized(observers) {
             for (o in observers) o.eventProperty(property)
         }
     }
 
+    @JvmStatic
     fun event(eventId: Int) {
         synchronized(observers) {
             for (o in observers) o.event(eventId)
@@ -87,14 +94,17 @@ object MPVLib {
 
     private val log_observers: MutableList<LogObserver> = ArrayList()
 
+    @JvmStatic
     fun addLogObserver(o: LogObserver) {
         synchronized(log_observers) { log_observers.add(o) }
     }
 
+    @JvmStatic
     fun removeLogObserver(o: LogObserver) {
         synchronized(log_observers) { log_observers.remove(o) }
     }
 
+    @JvmStatic
     fun logMessage(prefix: String, level: Int, text: String) {
         synchronized(log_observers) {
             for (o in log_observers) o.logMessage(prefix, level, text)

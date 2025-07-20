@@ -11,11 +11,11 @@ extern "C" {
     jni_func(jint, setOptionString, jstring option, jstring value);
 
     jni_func(jobject, getPropertyInt, jstring property);
-    jni_func(void, setPropertyInt, jstring property, jobject value);
+    jni_func(void, setPropertyInt, jstring property, jint value) ;
     jni_func(jobject, getPropertyDouble, jstring property);
-    jni_func(void, setPropertyDouble, jstring property, jobject value);
+    jni_func(void, setPropertyDouble, jstring property, jdouble value) ;
     jni_func(jobject, getPropertyBoolean, jstring property);
-    jni_func(void, setPropertyBoolean, jstring property, jobject value);
+    jni_func(void, setPropertyBoolean, jstring property, jboolean value) ;
     jni_func(jstring, getPropertyString, jstring jproperty);
     jni_func(void, setPropertyString, jstring jproperty, jstring jvalue);
 
@@ -92,19 +92,19 @@ jni_func(jstring, getPropertyString, jstring jproperty) {
     return jvalue;
 }
 
-jni_func(void, setPropertyInt, jstring jproperty, jobject jvalue) {
-    int64_t value = env->CallIntMethod(jvalue, java_Integer_intValue);
-    common_set_property(env, jproperty, MPV_FORMAT_INT64, &value);
+jni_func(void, setPropertyInt, jstring jproperty, jint value) {
+    int64_t val = (int64_t)value;
+    common_set_property(env, jproperty, MPV_FORMAT_INT64, &val);
 }
 
-jni_func(void, setPropertyDouble, jstring jproperty, jobject jvalue) {
-    double value = env->CallDoubleMethod(jvalue, java_Double_doubleValue);
-    common_set_property(env, jproperty, MPV_FORMAT_DOUBLE, &value);
+jni_func(void, setPropertyDouble, jstring jproperty, jdouble value) {
+    double val = (double)value;
+    common_set_property(env, jproperty, MPV_FORMAT_DOUBLE, &val);
 }
 
-jni_func(void, setPropertyBoolean, jstring jproperty, jobject jvalue) {
-    int value = env->CallBooleanMethod(jvalue, java_Boolean_booleanValue);
-    common_set_property(env, jproperty, MPV_FORMAT_FLAG, &value);
+jni_func(void, setPropertyBoolean, jstring jproperty, jboolean value) {
+    int val = value == JNI_TRUE ? 1 : 0;
+    common_set_property(env, jproperty, MPV_FORMAT_FLAG, &val);
 }
 
 jni_func(void, setPropertyString, jstring jproperty, jstring jvalue) {
