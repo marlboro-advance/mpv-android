@@ -49,6 +49,16 @@ object MPVLib {
     external fun getPropertyNode(property: String): MPVNode?
     external fun setPropertyNode(property: String, node: MPVNode)
 
+    // TODO: Maybe implement some actual jni functions for these types?
+    @JvmStatic
+    fun getPropertyFloat(property: String) = getPropertyDouble(property)?.toFloat()
+    @JvmStatic
+    fun setPropertyFloat(property: String, value: Float) = setPropertyDouble(property, value.toDouble())
+    @JvmStatic
+    fun getPropertyLong(property: String) = getPropertyInt(property)?.toLong()
+    @JvmStatic
+    fun setPropertyLong(property: String, value: Long) = setPropertyInt(property, value.toInt())
+
     external fun observeProperty(property: String, format: Int)
 
     private val observers: MutableList<EventObserver> = ArrayList()
@@ -95,6 +105,10 @@ object MPVLib {
     val propString = Property(mpvFormat.MPV_FORMAT_STRING, ::getPropertyString)
     val propDouble = Property(mpvFormat.MPV_FORMAT_DOUBLE, ::getPropertyDouble)
     val propNode = Property(mpvFormat.MPV_FORMAT_NODE, ::getPropertyNode)
+
+    // Convenience properties for common types
+    val propLong = Property(mpvFormat.MPV_FORMAT_INT64, { getPropertyInt(it)?.toLong() })
+    val propFloat = Property(mpvFormat.MPV_FORMAT_DOUBLE, { getPropertyDouble(it)?.toFloat() })
 
     fun eventFlow(property: String): Flow<Unit> {
         observeProperty(property, mpvFormat.MPV_FORMAT_NONE)
