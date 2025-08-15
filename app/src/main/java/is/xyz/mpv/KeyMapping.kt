@@ -1,87 +1,77 @@
-package is.xyz.mpv;
+package `is`.xyz.mpv;
 
 // Mapping between Android and mpv keycodes (special keys)
 
-import android.util.SparseArray;
-import static android.view.KeyEvent.*;
+import android.view.KeyEvent.*;
 
-public class KeyMapping {
-    public static final SparseArray<String> map = new SparseArray<>();
-
-    static {
-        // cf. https://github.com/mpv-player/mpv/blob/master/input/keycodes.h
-        map.put(KEYCODE_SPACE, "SPACE");
-        map.put(KEYCODE_ENTER, "ENTER");
-        map.put(KEYCODE_TAB, "TAB");
-        map.put(KEYCODE_DEL, "BS");
-        map.put(KEYCODE_FORWARD_DEL, "DEL");
-        map.put(KEYCODE_INSERT, "INS");
-        map.put(KEYCODE_MOVE_HOME, "HOME");
-        map.put(KEYCODE_MOVE_END, "END");
-        map.put(KEYCODE_PAGE_UP, "PGUP");
-        map.put(KEYCODE_PAGE_DOWN, "PGDWN");
-        map.put(KEYCODE_ESCAPE, "ESC");
-        map.put(KEYCODE_SYSRQ, "PRINT");
-
-        map.put(KEYCODE_DPAD_RIGHT, "RIGHT");
-        map.put(KEYCODE_DPAD_LEFT, "LEFT");
-        map.put(KEYCODE_DPAD_DOWN, "DOWN");
-        map.put(KEYCODE_DPAD_UP, "UP");
-
-        // not bound, let the OS handle these:
-        //map.put(KEYCODE_POWER, "POWER");
-        //map.put(KEYCODE_MENU, "MENU");
-        //map.put(KEYCODE_VOLUME_UP, "VOLUME_UP");
-        //map.put(KEYCODE_VOLUME_DOWN, "VOLUME_DOWN");
-        //map.put(KEYCODE_VOLUME_MUTE, "MUTE");
-        //map.put(KEYCODE_HOME, "HOMEPAGE");
-        //map.put(KEYCODE_SLEEP, "SLEEP");
-        //map.put(KEYCODE_ENVELOPE, "MAIL");
-        //map.put(KEYCODE_SEARCH, "SEARCH");
-        map.put(KEYCODE_MEDIA_PLAY, "PLAYONLY");
-        map.put(KEYCODE_MEDIA_PAUSE, "PAUSEONLY");
-        map.put(KEYCODE_MEDIA_PLAY_PAUSE, "PLAYPAUSE");
-        map.put(KEYCODE_MEDIA_STOP, "STOP");
-        map.put(KEYCODE_MEDIA_FAST_FORWARD, "FORWARD");
-        map.put(KEYCODE_MEDIA_REWIND, "REWIND");
-        map.put(KEYCODE_MEDIA_NEXT, "NEXT");
-        map.put(KEYCODE_MEDIA_PREVIOUS, "PREV");
-        map.put(KEYCODE_MEDIA_RECORD, "RECORD");
-        map.put(KEYCODE_CHANNEL_UP, "CHANNEL_UP");
-        map.put(KEYCODE_CHANNEL_DOWN, "CHANNEL_DOWN");
-        map.put(KEYCODE_ZOOM_IN, "ZOOMIN");
-        map.put(KEYCODE_ZOOM_OUT, "ZOOMOUT");
-
-        map.put(KEYCODE_F1, "F1");
-        map.put(KEYCODE_F2, "F2");
-        map.put(KEYCODE_F3, "F3");
-        map.put(KEYCODE_F4, "F4");
-        map.put(KEYCODE_F5, "F5");
-        map.put(KEYCODE_F6, "F6");
-        map.put(KEYCODE_F7, "F7");
-        map.put(KEYCODE_F8, "F8");
-        map.put(KEYCODE_F9, "F9");
-        map.put(KEYCODE_F10, "F10");
-        map.put(KEYCODE_F11, "F11");
-        map.put(KEYCODE_F12, "F12");
-
-        map.put(KEYCODE_NUMPAD_0, "KP0");
-        map.put(KEYCODE_NUMPAD_1, "KP1");
-        map.put(KEYCODE_NUMPAD_2, "KP2");
-        map.put(KEYCODE_NUMPAD_3, "KP3");
-        map.put(KEYCODE_NUMPAD_4, "KP4");
-        map.put(KEYCODE_NUMPAD_5, "KP5");
-        map.put(KEYCODE_NUMPAD_6, "KP6");
-        map.put(KEYCODE_NUMPAD_7, "KP7");
-        map.put(KEYCODE_NUMPAD_8, "KP8");
-        map.put(KEYCODE_NUMPAD_9, "KP9");
-        map.put(KEYCODE_NUMPAD_DOT, "KP_DEC");
-        map.put(KEYCODE_NUMPAD_ENTER, "KP_ENTER");
-
-        // Special mapping of programmable colour keys
-        map.put(KEYCODE_PROG_RED, "F13");
-        map.put(KEYCODE_PROG_GREEN, "F14");
-        map.put(KEYCODE_PROG_YELLOW, "F15");
-        map.put(KEYCODE_PROG_BLUE, "F16");
-    }
-}
+// https://github.com/mpv-player/mpv/blob/master/input/keycodes.h
+val KeyMapping = mapOf(
+    KEYCODE_SPACE to "SPACE",
+    KEYCODE_ENTER to "ENTER",
+    KEYCODE_TAB to "TAB",
+    KEYCODE_DEL to "BS",
+    KEYCODE_FORWARD_DEL to "DEL",
+    KEYCODE_INSERT to "INS",
+    KEYCODE_MOVE_HOME to "HOME",
+    KEYCODE_MOVE_END to "END",
+    KEYCODE_PAGE_UP to "PGUP",
+    KEYCODE_PAGE_DOWN to "PGDWN",
+    KEYCODE_ESCAPE to "ESC",
+    KEYCODE_SYSRQ to "PRINT",
+    KEYCODE_DPAD_RIGHT to "RIGHT",
+    KEYCODE_DPAD_LEFT to "LEFT",
+    KEYCODE_DPAD_DOWN to "DOWN",
+    KEYCODE_DPAD_UP to "UP",
+    // not bound, let the OS handle these:
+    //KEYCODE_POWER to "POWER",
+    //KEYCODE_MENU to "MENU",
+    //KEYCODE_VOLUME_UP to "VOLUME_UP",
+    //KEYCODE_VOLUME_DOWN to "VOLUME_DOWN",
+    //KEYCODE_VOLUME_MUTE to "MUTE",
+    //KEYCODE_HOME to "HOMEPAGE",
+    //KEYCODE_SLEEP to "SLEEP",
+    //KEYCODE_ENVELOPE to "MAIL",
+    //KEYCODE_SEARCH to "SEARCH",
+    KEYCODE_MEDIA_PLAY to "PLAYONLY",
+    KEYCODE_MEDIA_PAUSE to "PAUSEONLY",
+    KEYCODE_MEDIA_PLAY_PAUSE to "PLAYPAUSE",
+    KEYCODE_MEDIA_STOP to "STOP",
+    KEYCODE_MEDIA_FAST_FORWARD to "FORWARD",
+    KEYCODE_MEDIA_REWIND to "REWIND",
+    KEYCODE_MEDIA_NEXT to "NEXT",
+    KEYCODE_MEDIA_PREVIOUS to "PREV",
+    KEYCODE_MEDIA_RECORD to "RECORD",
+    KEYCODE_CHANNEL_UP to "CHANNEL_UP",
+    KEYCODE_CHANNEL_DOWN to "CHANNEL_DOWN",
+    KEYCODE_ZOOM_IN to "ZOOMIN",
+    KEYCODE_ZOOM_OUT to "ZOOMOUT",
+    KEYCODE_F1 to "F1",
+    KEYCODE_F2 to "F2",
+    KEYCODE_F3 to "F3",
+    KEYCODE_F4 to "F4",
+    KEYCODE_F5 to "F5",
+    KEYCODE_F6 to "F6",
+    KEYCODE_F7 to "F7",
+    KEYCODE_F8 to "F8",
+    KEYCODE_F9 to "F9",
+    KEYCODE_F10 to "F10",
+    KEYCODE_F11 to "F11",
+    KEYCODE_F12 to "F12",
+    KEYCODE_NUMPAD_0 to "KP0",
+    KEYCODE_NUMPAD_1 to "KP1",
+    KEYCODE_NUMPAD_2 to "KP2",
+    KEYCODE_NUMPAD_3 to "KP3",
+    KEYCODE_NUMPAD_4 to "KP4",
+    KEYCODE_NUMPAD_5 to "KP5",
+    KEYCODE_NUMPAD_6 to "KP6",
+    KEYCODE_NUMPAD_7 to "KP7",
+    KEYCODE_NUMPAD_8 to "KP8",
+    KEYCODE_NUMPAD_9 to "KP9",
+    KEYCODE_NUMPAD_DOT to "KP_DEC",
+    KEYCODE_NUMPAD_ENTER to "KP_ENTER",
+    // Special mapping of programmable colour keys
+    KEYCODE_PROG_RED to "F13",
+    KEYCODE_PROG_GREEN to "F14",
+    KEYCODE_PROG_YELLOW to "F15",
+    KEYCODE_PROG_BLUE to "F16"
+)
