@@ -5,7 +5,7 @@ import android.util.AttributeSet
 import android.util.Log
 import android.view.SurfaceHolder
 import android.view.SurfaceView
-import `is`.xyz.mpv.MPVLib.mpvFormat
+import `is`.xyz.mpv.MPVLib.MpvFormat
 import `is`.xyz.mpv.MPVLib.observeProperty
 import `is`.xyz.mpv.MPVLib.propBoolean
 import `is`.xyz.mpv.MPVLib.propDouble
@@ -55,7 +55,7 @@ abstract class BaseMPVView(context: Context, attrs: AttributeSet) : SurfaceView(
     fun destroy() {
         // Disable surface callbacks to avoid using unintialized mpv state
         holder.removeCallback(this)
-
+        clearAllProperties()
         MPVLib.destroy()
     }
 
@@ -117,13 +117,19 @@ abstract class BaseMPVView(context: Context, attrs: AttributeSet) : SurfaceView(
     }
 
     private fun reobserveAllProperties() {
-        propBoolean.map.keys.forEach { observeProperty(it, mpvFormat.MPV_FORMAT_FLAG) }
-        propString.map.keys.forEach { observeProperty(it, mpvFormat.MPV_FORMAT_STRING) }
-        propDouble.map.keys.forEach { observeProperty(it, mpvFormat.MPV_FORMAT_DOUBLE) }
-        propFloat.map.keys.forEach { observeProperty(it, mpvFormat.MPV_FORMAT_DOUBLE) }
-        propLong.map.keys.forEach { observeProperty(it, mpvFormat.MPV_FORMAT_INT64) }
-        propInt.map.keys.forEach { observeProperty(it, mpvFormat.MPV_FORMAT_INT64) }
-        propNode.map.keys.forEach { observeProperty(it, mpvFormat.MPV_FORMAT_NODE) }
+        propBoolean.map.keys.forEach { observeProperty(it, MpvFormat.MPV_FORMAT_FLAG) }
+        propString.map.keys.forEach { observeProperty(it, MpvFormat.MPV_FORMAT_STRING) }
+        propDouble.map.keys.forEach { observeProperty(it, MpvFormat.MPV_FORMAT_DOUBLE) }
+        propFloat.map.keys.forEach { observeProperty(it, MpvFormat.MPV_FORMAT_DOUBLE) }
+        propLong.map.keys.forEach { observeProperty(it, MpvFormat.MPV_FORMAT_INT64) }
+        propInt.map.keys.forEach { observeProperty(it, MpvFormat.MPV_FORMAT_INT64) }
+        propNode.map.keys.forEach { observeProperty(it, MpvFormat.MPV_FORMAT_NODE) }
+    }
+
+    private fun clearAllProperties() {
+        listOf(propInt, propDouble, propString, propFloat, propLong, propNode).forEach {
+            it.map.clear()
+        }
     }
 
     companion object {
