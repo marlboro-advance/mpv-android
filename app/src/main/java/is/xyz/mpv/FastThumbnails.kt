@@ -13,11 +13,12 @@ import java.util.concurrent.atomic.AtomicBoolean
  * and uses optimized FFmpeg software decoding for maximum speed.
  * 
  * Features:
+ * - Quality-based scaling: 1-10 scale where 10 = original dimensions, 1 = 10% size
  * - Optimized software decoding (HW acceleration disabled for better single-frame performance)
  * - Multi-threaded frame + slice decoding
  * - Aggressive codec optimizations (skip loop filter, non-ref frames)
  * - Limited stream probing for faster initialization
- * - Fastest scaling algorithm (nearest neighbor)
+ * - Bilinear scaling for good quality when downscaling
  * - Smart keyframe seeking
  * - Minimal overhead (no MPV initialization)
  * 
@@ -26,11 +27,14 @@ import java.util.concurrent.atomic.AtomicBoolean
  * // Initialize once (in Application.onCreate)
  * FastThumbnails.initialize(applicationContext)
  * 
- * // Generate thumbnails
- * val bitmap = FastThumbnails.generate("/path/video.mp4", 10.0, 256)
+ * // Generate thumbnail at original dimensions (quality 10)
+ * val bitmap = FastThumbnails.generate("/path/video.mp4", 10.0)
+ * 
+ * // Generate at 50% size (quality 5)
+ * val bitmap = FastThumbnails.generate("/path/video.mp4", 10.0, quality = 5)
  * 
  * // Or async with coroutines
- * val bitmap = FastThumbnails.generateAsync("/path/video.mp4", 10.0, 256)
+ * val bitmap = FastThumbnails.generateAsync("/path/video.mp4", 10.0, quality = 8)
  * ```
  */
 object FastThumbnails {
@@ -61,7 +65,7 @@ object FastThumbnails {
      * 
      * @param path File path or URL to the video
      * @param position Time position in seconds (default: 0.0)
-     * @param dimension Size of the square thumbnail (default: 256)
+     * @param quality Quality/size scale 1-10 where 10 = original dimensions, 5 = 50%, 1 = 10% (default: 10)
      * @return Bitmap thumbnail, or null if generation fails
      * @throws IllegalStateException if not initialized
      */
@@ -70,14 +74,18 @@ object FastThumbnails {
     fun generate(
         path: String,
         position: Double = 0.0,
-        dimension: Int = 256
+        quality: Int = 10
     ): Bitmap? {
         check(initialized.get()) {
             "FastThumbnails not initialized. Call initialize(context) first."
         }
         
+        require(quality in 1..10) {
+            "Quality must be between 1 and 10 (got $quality)"
+        }
+        
         return try {
-            MPVLib.grabThumbnailFast(path, position, dimension)
+            MPVLib.grabThumbnailFast(path, position, quality)
         } catch (e: Exception) {
             e.printStackTrace()
             null
@@ -89,15 +97,15 @@ object FastThumbnails {
      * 
      * @param path File path or URL
      * @param position Time position in seconds (default: 0.0)
-     * @param dimension Thumbnail size (default: 256)
-     * @return Bitmap or null
+     * @param quality Quality/size scale 1-10 where 10 = original dimensions (default: 10)
+     * @return Bitmap thumbnail, or null
      */
     suspend fun generateAsync(
         path: String,
         position: Double = 0.0,
-        dimension: Int = 256
+        quality: Int = 10
     ): Bitmap? = withContext(Dispatchers.IO) {
-        generate(path, position, dimension)
+        generate(path, position, quality)
     }
     
     /**
@@ -105,7 +113,7 @@ object FastThumbnails {
      * 
      * @param path File path
      * @param positions List of time positions
-     * @param dimension Thumbnail size (default: 256)
+     * @param quality Quality/size scale 1-10 where 10 = original dimensions (default: 10)
      * @return List of bitmaps (may contain nulls)
      */
     @JvmStatic
@@ -113,10 +121,10 @@ object FastThumbnails {
     fun generateMultiple(
         path: String,
         positions: List<Double>,
-        dimension: Int = 256
+        quality: Int = 10
     ): List<Bitmap?> {
         return positions.map { position ->
-            generate(path, position, dimension)
+            generate(path, position, quality)
         }
     }
     
@@ -125,16 +133,16 @@ object FastThumbnails {
      * 
      * @param path File path
      * @param positions List of positions
-     * @param dimension Thumbnail size (default: 256)
+     * @param quality Quality/size scale 1-10 where 10 = original dimensions (default: 10)
      * @return List of bitmaps
      */
     suspend fun generateMultipleAsync(
         path: String,
         positions: List<Double>,
-        dimension: Int = 256
+        quality: Int = 10
     ): List<Bitmap?> = withContext(Dispatchers.IO) {
         positions.map { position ->
-            generate(path, position, dimension)
+            generate(path, position, quality)
         }
     }
     
@@ -142,12 +150,16 @@ object FastThumbnails {
      * Performance benchmark helper.
      * Generates a thumbnail and measures time taken.
      * 
+     * @param path File path
+     * @param position Time position in seconds (default: 0.0)
+     * @param quality Quality/size scale 1-10 where 10 = original dimensions (default: 10)
      * @return Pair of (bitmap, time in milliseconds)
      */
     @JvmStatic
-    fun benchmark(path: String, position: Double = 0.0, dimension: Int = 256): Pair<Bitmap?, Long> {
+    @JvmOverloads
+    fun benchmark(path: String, position: Double = 0.0, quality: Int = 10): Pair<Bitmap?, Long> {
         val start = System.currentTimeMillis()
-        val bitmap = generate(path, position, dimension)
+        val bitmap = generate(path, position, quality)
         val elapsed = System.currentTimeMillis() - start
         return Pair(bitmap, elapsed)
     }

@@ -41,23 +41,23 @@ object MPVLib {
     /**
      * Fast thumbnail generation using direct FFmpeg API (30-80ms).
      * Bypasses MPV entirely, uses optimized FFmpeg software decoding.
-     * This is the fastest possible thumbnail generation method.
      * 
      * Features:
+     * - Quality-based scaling: 1-10 scale where 10 = original dimensions, 1 = 10% size
      * - Optimized software decoding (HW acceleration disabled for better performance)
      * - Multi-threaded frame + slice decoding
      * - Aggressive codec optimizations (skip loop filter, non-ref frames)
      * - Limited stream probing for faster initialization
-     * - Fastest scaling algorithm (nearest neighbor)
+     * - Bilinear scaling for good quality when downscaling
      * - Minimal overhead (no MPV initialization)
      * - Smart keyframe seeking
      * 
      * @param path File path or URL to extract thumbnail from
      * @param position Time position in seconds (0.0 for beginning)
-     * @param dimension Size of the square thumbnail (e.g., 256 for 256x256)
+     * @param quality Quality/size scale 1-10 (10 = original dimensions, 5 = 50%, 1 = 10%)
      * @return Bitmap of the thumbnail, or null if extraction fails
      */
-    external fun grabThumbnailFast(path: String, position: Double = 0.0, dimension: Int = 256): Bitmap?
+    external fun grabThumbnailFast(path: String, position: Double = 0.0, quality: Int = 10): Bitmap?
     
     /**
      * Initialize fast thumbnail generation system. 

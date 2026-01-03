@@ -19,7 +19,7 @@ extern "C" {
 #include "log.h"
 
 extern "C" {
-    jni_func(jobject, grabThumbnailFast, jstring jpath, jdouble position, jint dimension);
+    jni_func(jobject, grabThumbnailFast, jstring jpath, jdouble position, jint quality);
     jni_func(void, setThumbnailJavaVM, jobject appctx);
 };
 
@@ -53,38 +53,48 @@ jni_func(void, setThumbnailJavaVM, jobject appctx) {
     }
 }
 
-// Convert AVFrame to Android Bitmap
-static jobject frame_to_bitmap(JNIEnv *env, AVFrame *frame, int target_dimension) {
+// Convert AVFrame to Android Bitmap with quality-based scaling
+// Quality: 1-10, where 10 = original dimensions, lower values scale down proportionally
+static jobject frame_to_bitmap(JNIEnv *env, AVFrame *frame, int quality) {
     // Ensure JNI cache is initialized
     init_methods_cache(env);
     
+    // Calculate scaled dimensions based on quality (1-10)
+    // Quality 10 = 100% (original), Quality 5 = 50%, Quality 1 = 10%
+    float scale_factor = quality / 10.0f;
+    int width = (int)(frame->width * scale_factor);
+    int height = (int)(frame->height * scale_factor);
+    
+    // Ensure minimum dimensions of 1x1
+    if (width < 1) width = 1;
+    if (height < 1) height = 1;
+    
     // Create SwsContext for scaling and format conversion
     // Android Bitmap.Config.ARGB_8888 expects BGRA byte order (little-endian)
-    // Use SWS_POINT for maximum speed (nearest neighbor - fastest possible)
-    // Alternative: SWS_FAST_BILINEAR for better quality with slight speed cost
+    // Use SWS_BILINEAR for better quality when scaling down
     struct SwsContext *sws_ctx = sws_getContext(
         frame->width, frame->height, (AVPixelFormat)frame->format,
-        target_dimension, target_dimension, AV_PIX_FMT_BGRA,
-        SWS_POINT,  // Fastest algorithm (nearest neighbor)
+        width, height, AV_PIX_FMT_BGRA,
+        SWS_BILINEAR,  // Good balance of speed and quality for downscaling
         NULL, NULL, NULL
     );
     
     if (!sws_ctx) {
-        ALOGE("grabThumbnailFast: Failed to create SwsContext");
+        ALOGE("frame_to_bitmap: Failed to create SwsContext");
         return NULL;
     }
     
     // Allocate output buffer
-    jintArray arr = env->NewIntArray(target_dimension * target_dimension);
+    jintArray arr = env->NewIntArray(width * height);
     if (!arr) {
-        ALOGE("grabThumbnailFast: Failed to allocate int array");
+        ALOGE("frame_to_bitmap: Failed to allocate int array");
         sws_freeContext(sws_ctx);
         return NULL;
     }
     
     jint *pixels = env->GetIntArrayElements(arr, NULL);
     if (!pixels) {
-        ALOGE("grabThumbnailFast: Failed to get array elements");
+        ALOGE("frame_to_bitmap: Failed to get array elements");
         env->DeleteLocalRef(arr);
         sws_freeContext(sws_ctx);
         return NULL;
@@ -92,7 +102,7 @@ static jobject frame_to_bitmap(JNIEnv *env, AVFrame *frame, int target_dimension
     
     // Setup destination buffer
     uint8_t *dst_data[4] = { (uint8_t*)pixels };
-    int dst_linesize[4] = { target_dimension * 4 };
+    int dst_linesize[4] = { width * 4 };
     
     // Scale and convert
     sws_scale(sws_ctx, frame->data, frame->linesize, 0, frame->height,
@@ -103,14 +113,14 @@ static jobject frame_to_bitmap(JNIEnv *env, AVFrame *frame, int target_dimension
     // Create Android Bitmap
     env->ReleaseIntArrayElements(arr, pixels, 0);
     
-    // Get the ARGB_8888 config object (not the field ID!)
+    // Get the ARGB_8888 config object
     jobject bitmap_config = env->GetStaticObjectField(
         android_graphics_Bitmap_Config, 
         android_graphics_Bitmap_Config_ARGB_8888
     );
     
     if (!bitmap_config) {
-        ALOGE("grabThumbnailFast: Failed to get Bitmap.Config.ARGB_8888");
+        ALOGE("frame_to_bitmap: Failed to get Bitmap.Config.ARGB_8888");
         env->DeleteLocalRef(arr);
         return NULL;
     }
@@ -118,11 +128,11 @@ static jobject frame_to_bitmap(JNIEnv *env, AVFrame *frame, int target_dimension
     jobject bitmap = env->CallStaticObjectMethod(
         android_graphics_Bitmap, 
         android_graphics_Bitmap_createBitmap,
-        arr, target_dimension, target_dimension, bitmap_config
+        arr, width, height, bitmap_config
     );
     
     if (env->ExceptionCheck()) {
-        ALOGE("grabThumbnailFast: Exception while creating bitmap");
+        ALOGE("frame_to_bitmap: Exception while creating bitmap");
         env->ExceptionDescribe();
         env->ExceptionClear();
     }
@@ -133,20 +143,20 @@ static jobject frame_to_bitmap(JNIEnv *env, AVFrame *frame, int target_dimension
     return bitmap;
 }
 
-jni_func(jobject, grabThumbnailFast, jstring jpath, jdouble position, jint dimension) {
+jni_func(jobject, grabThumbnailFast, jstring jpath, jdouble position, jint quality) {
     std::lock_guard<std::mutex> lock(g_thumb_mutex);
     
     // Ensure JNI cache is initialized
     init_methods_cache(env);
     
     // Validate parameters
-    if (dimension <= 0 || dimension > 4096) {
-        ALOGE("grabThumbnailFast: invalid dimension %d (must be 1-4096)", dimension);
+    if (position < 0.0) {
+        ALOGE("grabThumbnailFast: invalid position %.2f (must be >= 0)", position);
         return NULL;
     }
     
-    if (position < 0.0) {
-        ALOGE("grabThumbnailFast: invalid position %.2f (must be >= 0)", position);
+    if (quality < 1 || quality > 10) {
+        ALOGE("grabThumbnailFast: invalid quality %d (must be 1-10)", quality);
         return NULL;
     }
     
@@ -156,7 +166,7 @@ jni_func(jobject, grabThumbnailFast, jstring jpath, jdouble position, jint dimen
         return NULL;
     }
     
-    ALOGV("grabThumbnailFast: Opening %s at position %.2f", path, position);
+    ALOGV("grabThumbnailFast: Opening %s at position %.2f with quality %d", path, position, quality);
     
     // ========================================================================
     // STEP 1: Open video file with optimizations
@@ -325,8 +335,8 @@ jni_func(jobject, grabThumbnailFast, jstring jpath, jdouble position, jint dimen
                         ALOGV("grabThumbnailFast: Found frame at %.2fs (target: %.2fs)", 
                               frame_time, position);
                         
-                        // Convert and create bitmap
-                        bitmap = frame_to_bitmap(env, frame, dimension);
+                        // Convert and create bitmap with quality scaling
+                        bitmap = frame_to_bitmap(env, frame, quality);
                         if (bitmap) {
                             frame_found = true;
                         } else {
@@ -366,27 +376,29 @@ jni_func(jobject, grabThumbnailFast, jstring jpath, jdouble position, jint dimen
 // ============================================================================
 // OPTIMIZATION NOTES:
 //
-// This implementation is optimized for maximum speed with software decoding:
+// This implementation extracts thumbnails with quality-based scaling (1-10)
+// and is optimized for maximum speed with software decoding:
 // 
 // 1. Direct API access - No MPV initialization overhead
 // 2. Minimal decoding - Only decode frames we need
-// 3. SOFTWARE decoding - HW acceleration DISABLED for better single-frame performance
+// 3. Quality scaling - Quality 10 = original dimensions, Quality 1 = 10% size
+// 4. Bilinear scaling - Good balance of speed and quality for downscaling
+// 5. SOFTWARE decoding - HW acceleration DISABLED for better single-frame performance
 //    - No GPU context initialization overhead
 //    - No CPU-GPU memory transfer latency
 //    - Better for batch operations on multi-core CPUs
 //    - More consistent performance across devices
-// 4. Aggressive codec optimizations:
+// 6. Aggressive codec optimizations:
 //    - Skip loop filter (AVDISCARD_ALL)
 //    - Skip non-reference frames
 //    - Dual threading (frame + slice)
 //    - Fast decoding flags
-// 5. Limited stream probing:
+// 7. Limited stream probing:
 //    - 5MB probesize (vs default 50MB)
 //    - 5s analysis duration
 //    - 3 frames FPS probe
-// 6. Fastest scaling - SWS_POINT (nearest neighbor)
-// 7. Fast seeking - Seeks to keyframe, then decode forward
-// 8. Thread parallelism - Multi-threaded frame + slice decoding
+// 8. Fast seeking - Seeks to keyframe, then decode forward
+// 9. Thread parallelism - Multi-threaded frame + slice decoding
 //
 // Expected performance (software decoding):
 // - H.264 1080p: 30-60ms
