@@ -27,6 +27,9 @@ static inline mpv_node make_node_str(const char *s)
 
 jni_func(jobject, grabThumbnail, jint dimension) {
     CHECK_MPV_INIT();
+    
+    // Ensure JNI cache is initialized
+    init_methods_cache(env);
 
     mpv_node result{};
     {

@@ -3,6 +3,7 @@
 
 #include <jni.h>
 #include <stdlib.h>
+#include <mutex>
 
 bool acquire_jni_env(JavaVM *vm, JNIEnv **env)
 {
@@ -18,7 +19,17 @@ bool acquire_jni_env(JavaVM *vm, JNIEnv **env)
 
 void init_methods_cache(JNIEnv *env)
 {
+    static std::mutex init_mutex;
     static bool methods_initialized = false;
+    
+    // Fast path: already initialized
+    if (methods_initialized)
+        return;
+    
+    // Slow path: need to initialize (thread-safe)
+    std::lock_guard<std::mutex> lock(init_mutex);
+    
+    // Double-check after acquiring lock
     if (methods_initialized)
         return;
 

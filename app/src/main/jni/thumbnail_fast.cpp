@@ -1,6 +1,7 @@
 #include <stdlib.h>
 #include <string>
 #include <mutex>
+#include <stdint.h>
 
 #include <jni.h>
 #include <android/bitmap.h>
@@ -54,6 +55,9 @@ jni_func(void, setThumbnailJavaVM, jobject appctx) {
 
 // Convert AVFrame to Android Bitmap
 static jobject frame_to_bitmap(JNIEnv *env, AVFrame *frame, int target_dimension) {
+    // Ensure JNI cache is initialized
+    init_methods_cache(env);
+    
     // Create SwsContext for scaling and format conversion
     struct SwsContext *sws_ctx = sws_getContext(
         frame->width, frame->height, (AVPixelFormat)frame->format,
@@ -69,7 +73,19 @@ static jobject frame_to_bitmap(JNIEnv *env, AVFrame *frame, int target_dimension
     
     // Allocate output buffer
     jintArray arr = env->NewIntArray(target_dimension * target_dimension);
+    if (!arr) {
+        ALOGE("grabThumbnailFast: Failed to allocate int array");
+        sws_freeContext(sws_ctx);
+        return NULL;
+    }
+    
     jint *pixels = env->GetIntArrayElements(arr, NULL);
+    if (!pixels) {
+        ALOGE("grabThumbnailFast: Failed to get array elements");
+        env->DeleteLocalRef(arr);
+        sws_freeContext(sws_ctx);
+        return NULL;
+    }
     
     // Setup destination buffer
     uint8_t *dst_data[4] = { (uint8_t*)pixels };
@@ -84,16 +100,29 @@ static jobject frame_to_bitmap(JNIEnv *env, AVFrame *frame, int target_dimension
     // Create Android Bitmap
     env->ReleaseIntArrayElements(arr, pixels, 0);
     
+    // Get the ARGB_8888 config object (not the field ID!)
     jobject bitmap_config = env->GetStaticObjectField(
         android_graphics_Bitmap_Config, 
         android_graphics_Bitmap_Config_ARGB_8888
     );
+    
+    if (!bitmap_config) {
+        ALOGE("grabThumbnailFast: Failed to get Bitmap.Config.ARGB_8888");
+        env->DeleteLocalRef(arr);
+        return NULL;
+    }
     
     jobject bitmap = env->CallStaticObjectMethod(
         android_graphics_Bitmap, 
         android_graphics_Bitmap_createBitmap,
         arr, target_dimension, target_dimension, bitmap_config
     );
+    
+    if (env->ExceptionCheck()) {
+        ALOGE("grabThumbnailFast: Exception while creating bitmap");
+        env->ExceptionDescribe();
+        env->ExceptionClear();
+    }
     
     env->DeleteLocalRef(arr);
     env->DeleteLocalRef(bitmap_config);
@@ -103,6 +132,20 @@ static jobject frame_to_bitmap(JNIEnv *env, AVFrame *frame, int target_dimension
 
 jni_func(jobject, grabThumbnailFast, jstring jpath, jdouble position, jint dimension) {
     std::lock_guard<std::mutex> lock(g_thumb_mutex);
+    
+    // Ensure JNI cache is initialized
+    init_methods_cache(env);
+    
+    // Validate parameters
+    if (dimension <= 0 || dimension > 4096) {
+        ALOGE("grabThumbnailFast: invalid dimension %d (must be 1-4096)", dimension);
+        return NULL;
+    }
+    
+    if (position < 0.0) {
+        ALOGE("grabThumbnailFast: invalid position %.2f (must be >= 0)", position);
+        return NULL;
+    }
     
     const char *path = env->GetStringUTFChars(jpath, NULL);
     if (!path) {
@@ -192,6 +235,8 @@ jni_func(jobject, grabThumbnailFast, jstring jpath, jdouble position, jint dimen
         AVBufferRef *hw_device_ctx = NULL;
         if (av_hwdevice_ctx_create(&hw_device_ctx, hw_type, NULL, NULL, 0) >= 0) {
             codec_ctx->hw_device_ctx = av_buffer_ref(hw_device_ctx);
+            // Release the original reference (av_buffer_ref incremented it)
+            av_buffer_unref(&hw_device_ctx);
             ALOGV("grabThumbnailFast: Hardware decoding enabled");
         }
     }
@@ -206,7 +251,7 @@ jni_func(jobject, grabThumbnailFast, jstring jpath, jdouble position, jint dimen
     // ========================================================================
     // STEP 4: Seek to position
     // ========================================================================
-    if (position > 0.0) {
+    if (position > 0.0 && position < INT64_MAX / AV_TIME_BASE) {
         int64_t timestamp = (int64_t)(position * AV_TIME_BASE);
         
         // Seek to nearest keyframe before position
@@ -222,7 +267,22 @@ jni_func(jobject, grabThumbnailFast, jstring jpath, jdouble position, jint dimen
     // STEP 5: Decode frame at position
     // ========================================================================
     AVPacket *packet = av_packet_alloc();
+    if (!packet) {
+        ALOGE("grabThumbnailFast: Failed to allocate packet");
+        avcodec_free_context(&codec_ctx);
+        avformat_close_input(&format_ctx);
+        return NULL;
+    }
+    
     AVFrame *frame = av_frame_alloc();
+    if (!frame) {
+        ALOGE("grabThumbnailFast: Failed to allocate frame");
+        av_packet_free(&packet);
+        avcodec_free_context(&codec_ctx);
+        avformat_close_input(&format_ctx);
+        return NULL;
+    }
+    
     AVFrame *rgb_frame = NULL;
     jobject bitmap = NULL;
     
@@ -239,7 +299,12 @@ jni_func(jobject, grabThumbnailFast, jstring jpath, jdouble position, jint dimen
                     frames_decoded++;
                     
                     // Calculate frame timestamp
-                    double frame_time = frame->pts * av_q2d(video_stream->time_base);
+                    double frame_time = 0.0;
+                    if (frame->pts != AV_NOPTS_VALUE) {
+                        frame_time = frame->pts * av_q2d(video_stream->time_base);
+                    } else if (frame->best_effort_timestamp != AV_NOPTS_VALUE) {
+                        frame_time = frame->best_effort_timestamp * av_q2d(video_stream->time_base);
+                    }
                     
                     // Check if we've reached the desired position
                     if (position == 0.0 || frame_time >= position - 0.5) {
@@ -248,7 +313,11 @@ jni_func(jobject, grabThumbnailFast, jstring jpath, jdouble position, jint dimen
                         
                         // Convert and create bitmap
                         bitmap = frame_to_bitmap(env, frame, dimension);
-                        frame_found = true;
+                        if (bitmap) {
+                            frame_found = true;
+                        } else {
+                            ALOGE("grabThumbnailFast: Failed to convert frame to bitmap");
+                        }
                         break;
                     }
                     
