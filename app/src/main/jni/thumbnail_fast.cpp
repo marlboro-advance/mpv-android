@@ -183,17 +183,12 @@ jni_func(jobject, grabThumbnailFast, jstring jpath, jdouble position, jint dimen
     env->ReleaseStringUTFChars(jpath, path);
     
     // Find stream information with minimal analysis
-    AVDictionary *opts = NULL;
-    av_dict_set(&opts, "analyzeduration", "2000000", 0);  // 2 seconds max
-    av_dict_set(&opts, "probesize", "5000000", 0);        // 5MB max
-    
-    if (avformat_find_stream_info(format_ctx, &opts) < 0) {
+    // Note: probesize and analyzeduration are already set on format_ctx above
+    if (avformat_find_stream_info(format_ctx, NULL) < 0) {
         ALOGE("grabThumbnailFast: Could not find stream info");
-        av_dict_free(&opts);
         avformat_close_input(&format_ctx);
         return NULL;
     }
-    av_dict_free(&opts);
     
     // ========================================================================
     // STEP 2: Find video stream
