@@ -64,19 +64,4 @@ jobs:
             mpv-android-lib-${{ env.VERSION_TAG }}.aar
           draft: true
           prerelease: false
-      - name: Publish Release
-        env:
-          SIGNING_KEY: ${{ secrets.SIGNING_KEY_BASE64 }}
-          SIGNING_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
-          SIGNING_KEY_ID: ${{ secrets.SIGNING_KEY_ID }}
-          MAVEN_CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
-          MAVEN_CENTRAL_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
-        run: |
-          echo "$SIGNING_KEY" | base64 -d > /tmp/keyring.gpg
-          ./gradlew publishAllPublicationsToMavenCentralRepository \
-            -Psigning.secretKeyRingFile=/tmp/keyring.gpg \
-            -Psigning.password="$SIGNING_PASSWORD" \
-            -Psigning.keyId="$SIGNING_KEY_ID" \
-            -PmavenCentralUsername="$MAVEN_CENTRAL_USERNAME" \
-            -PmavenCentralPassword="$MAVEN_CENTRAL_PASSWORD"
-          rm -f /tmp/keyring.gpg
+
