@@ -1,4 +1,14 @@
 jdk:
   - openjdk17
+before_install:
+  - echo "Running before install"
+  - pwd
+  - ls -la
+  - chmod +x ./gradlew
+  # Create symlink from app to mpvlib since we renamed the module but directory is still 'app'
+  - if [ -d "app" ] && [ ! -d "mpvlib" ]; then ln -s app mpvlib; fi
 install:
-  - ./gradlew clean -Pgroup=com.github.marlboro-advance -xtest -xlint publishToMavenLocal
+  - echo "Running install"
+  - pwd
+  - ls -la
+  - ./gradlew clean -xtest publishToMavenLocal
