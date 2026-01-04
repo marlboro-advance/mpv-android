@@ -13,9 +13,7 @@ buildscript {
     }
 }
 
-plugins {
-    id "com.vanniktech.maven.publish" version "0.32.0" apply false
-}
+// Maven publish plugin removed
 
 allprojects {
     repositories {

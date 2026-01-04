@@ -1,4 +1,1 @@
-include ':mpvlib'
-
-// For backward compatibility, use 'app' directory for 'mpvlib' project
-project(':mpvlib').projectDir = new File(rootDir, 'app')
+include ':app'
