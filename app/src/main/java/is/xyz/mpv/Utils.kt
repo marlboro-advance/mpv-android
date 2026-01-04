@@ -107,9 +107,9 @@ object Utils {
 
         val candidates = mutableListOf<String>()
         // check all media dirs, there's usually one on each storage volume
-        context.externalMediaDirs.forEach {
-            if (it != null)
-                candidates.add(it.absolutePath)
+        // Using safe call to handle potential null values in the array
+        context.externalMediaDirs?.filterNotNull()?.forEach {
+            candidates.add(it.absolutePath)
         }
         // go on a journey to find other mounts Google doesn't want us to find
         File("/proc/mounts").forEachLine { line ->
@@ -130,8 +130,8 @@ object Utils {
                 continue
 
             // find the actual root path of that volume
-            while (storageManager.getStorageVolume(root.parentFile) == vol) {
-                root = root.parentFile
+            while (root.parentFile != null && storageManager.getStorageVolume(root.parentFile) == vol) {
+                root = root.parentFile!!
             }
 
             if (!list.any { it.path == root })
