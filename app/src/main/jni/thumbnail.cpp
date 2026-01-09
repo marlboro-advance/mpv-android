@@ -875,7 +875,7 @@ jni_func(jobject, grabThumbnailFast, jstring jpath, jdouble position, jint dimen
                         ALOGI("Thumbnail | ✓ Found matching frame at %.2fs (target: %.2fs, tolerance: ±%.1fs)", 
                               frame_time, position, match_tolerance);
                         ALOGD("Thumbnail | Frame info | Type: %s | Size: %dx%d | Format: %d",
-                              frame->key_frame ? "KEYFRAME" : "REGULAR",
+                              (frame->flags & AV_FRAME_FLAG_KEY) ? "KEYFRAME" : "REGULAR",
                               frame->width, frame->height, frame->format);
                         
                         // Convert and create bitmap
