@@ -44,15 +44,8 @@ static inline mpv_node make_node_str(const char *s)
 
 jni_func(jobject, grabThumbnail, jint dimension) {
     auto total_start = std::chrono::high_resolution_clock::now();
-    
     CHECK_MPV_INIT();
-    
-    // Ensure JNI cache is initialized
     init_methods_cache(env);
-    
-    ALOGI("════════════════════════════════════════════════════════════════");
-    ALOGI("Thumbnail (MPV) | Starting snapshot from current playback");
-    ALOGI("Thumbnail (MPV) | Dimension: %dpx", dimension);
 
     mpv_node result{};
     {
@@ -65,18 +58,11 @@ jni_func(jobject, grabThumbnail, jint dimension) {
         c.format = MPV_FORMAT_NODE_ARRAY;
         c.u.list = &c_array;
         
-        ALOGD("Thumbnail (MPV) | Executing screenshot-raw command...");
         if (mpv_command_node(g_mpv, &c, &result) < 0) {
-            ALOGE("Thumbnail (MPV) | ✗ screenshot-raw command failed");
-            ALOGI("════════════════════════════════════════════════════════════════");
+            ALOGE("Thumbnail (MPV) | Screenshot failed");
             return NULL;
         }
     }
-    
-    ALOGD("Thumbnail (MPV) | ✓ Screenshot command completed");
-
-    // extract relevant property data from the node map mpv returns
-    ALOGD("Thumbnail (MPV) | Extracting frame data from response...");
     int w = 0, h = 0, stride = 0;
     bool format_ok = false;
     struct mpv_byte_array *data = NULL;
@@ -107,42 +93,34 @@ jni_func(jobject, grabThumbnail, jint dimension) {
         }
     } while (0);
     if (!w || !h || !stride || !format_ok || !data) {
-        ALOGE("Thumbnail (MPV) | ✗ Failed to extract frame data from response");
+        ALOGE("Thumbnail (MPV) | Failed to extract frame data");
         mpv_free_node_contents(&result);
-        ALOGI("════════════════════════════════════════════════════════════════");
         return NULL;
     }
-    ALOGD("Thumbnail (MPV) | Frame data | Size: %dx%d | Stride: %d | Format: bgr0", w, h, stride);
 
-    // crop to square
-    ALOGD("Thumbnail (MPV) | Cropping to square...");
+    // Crop to square
     int crop_left = 0, crop_top = 0;
     int new_w = w, new_h = h;
     if (w > h) {
         crop_left = (w - h) / 2;
         new_w = h;
-        ALOGV("Thumbnail (MPV) | Cropping: removing %dpx from left/right", crop_left);
     } else if (h > w) {
         crop_top = (h - w) / 2;
         new_h = w;
-        ALOGV("Thumbnail (MPV) | Cropping: removing %dpx from top/bottom", crop_top);
     }
-    ALOGD("Thumbnail (MPV) | Cropped dimensions: %dx%d", new_w, new_h);
 
     uint8_t *new_data = reinterpret_cast<uint8_t*>(data->data);
-    new_data += crop_left * sizeof(uint32_t); // move begin rightwards
-    new_data += stride * crop_top; // move begin downwards
+    new_data += crop_left * sizeof(uint32_t);
+    new_data += stride * crop_top;
 
-    // convert & scale to appropriate size
-    ALOGD("Thumbnail (MPV) | Scaling %dx%d → %dx%d using BICUBIC...", new_w, new_h, dimension, dimension);
+    // Scale to target size
     struct SwsContext *ctx = sws_getContext(
         new_w, new_h, AV_PIX_FMT_BGR0,
         dimension, dimension, AV_PIX_FMT_RGB32,
         SWS_BICUBIC, NULL, NULL, NULL);
     if (!ctx) {
-        ALOGE("Thumbnail (MPV) | ✗ Failed to create scaling context");
+        ALOGE("Thumbnail (MPV) | Failed to create scaler");
         mpv_free_node_contents(&result);
-        ALOGI("════════════════════════════════════════════════════════════════");
         return NULL;
     }
 
@@ -153,33 +131,20 @@ jni_func(jobject, grabThumbnail, jint dimension) {
     int src_stride[4] = { stride },
         dst_stride[4] = { (int) sizeof(jint) * dimension };
     
-    auto scale_start = std::chrono::high_resolution_clock::now();
     sws_scale(ctx, src_p, src_stride, 0, new_h, dst_p, dst_stride);
-    auto scale_end = std::chrono::high_resolution_clock::now();
-    auto scale_duration = std::chrono::duration_cast<std::chrono::milliseconds>(scale_end - scale_start);
-    ALOGD("Thumbnail (MPV) | ✓ Scaling completed in %lld ms", (long long)scale_duration.count());
-    
     sws_freeContext(ctx);
-
-    mpv_free_node_contents(&result); // frees data->data
-
-    // create android.graphics.Bitmap
-    ALOGD("Thumbnail (MPV) | Creating Android Bitmap...");
+    mpv_free_node_contents(&result);
     env->ReleaseIntArrayElements(arr, scaled, 0);
 
-    jobject bitmap_config =
-        env->GetStaticObjectField(android_graphics_Bitmap_Config, android_graphics_Bitmap_Config_ARGB_8888);
-    jobject bitmap =
-        env->CallStaticObjectMethod(android_graphics_Bitmap, android_graphics_Bitmap_createBitmap,
+    jobject bitmap_config = env->GetStaticObjectField(android_graphics_Bitmap_Config, android_graphics_Bitmap_Config_ARGB_8888);
+    jobject bitmap = env->CallStaticObjectMethod(android_graphics_Bitmap, android_graphics_Bitmap_createBitmap,
         arr, dimension, dimension, bitmap_config);
     env->DeleteLocalRef(arr);
     env->DeleteLocalRef(bitmap_config);
 
     auto total_end = std::chrono::high_resolution_clock::now();
     auto total_duration = std::chrono::duration_cast<std::chrono::milliseconds>(total_end - total_start);
-    ALOGI("Thumbnail (MPV) | ✓ SUCCESS | Total time: %lld ms | Size: %dx%d", 
-          (long long)total_duration.count(), dimension, dimension);
-    ALOGI("════════════════════════════════════════════════════════════════");
+    ALOGI("Thumbnail (MPV) | Success: %lldms", (long long)total_duration.count());
 
     return bitmap;
 }
@@ -262,8 +227,6 @@ static bool init_hw_device_context() {
 // Automatic cleanup on library unload
 static void cleanup_thumbnail_resources() __attribute__((destructor));
 static void cleanup_thumbnail_resources() {
-    ALOGI("Thumbnail | Library unloading, cleaning up resources...");
-    
     // Clear codec cache
     {
         std::lock_guard<std::mutex> lock(g_codec_cache_mutex);
@@ -290,8 +253,6 @@ static void cleanup_thumbnail_resources() {
             }
         }
     }
-    
-    ALOGI("Thumbnail | Cleanup completed");
 }
 
 jni_func(void, setThumbnailJavaVM, jobject appctx) {
@@ -314,32 +275,22 @@ jni_func(void, setThumbnailJavaVM, jobject appctx) {
     }
 }
 
-// Clear codec cache and hardware context (call on low memory or app termination)
+// Clear codec cache and hardware context
 jni_func(void, clearThumbnailCache) {
-    ALOGI("Thumbnail | Clearing codec cache...");
-    
-    // Clear codec cache (safe - just pointers managed by FFmpeg)
     {
         std::lock_guard<std::mutex> lock(g_codec_cache_mutex);
-        size_t cache_size = g_codec_cache.size();
         g_codec_cache.clear();
-        ALOGD("Thumbnail | Cleared %zu codec entries from cache", cache_size);
     }
     
-    // Clear hardware context (properly release AVBufferRef)
     {
         std::lock_guard<std::mutex> lock(g_hw_ctx_mutex);
         if (g_hw_device_ctx) {
-            // av_buffer_unref will free the buffer when refcount reaches 0
             av_buffer_unref(&g_hw_device_ctx);
             g_hw_device_ctx = nullptr;
-            ALOGD("Thumbnail | Hardware device context released");
         }
         g_hw_ctx_initialized = false;
         g_hw_ctx_available = false;
     }
-    
-    ALOGI("Thumbnail | Cache cleared successfully");
 }
 
 // Quality level constants
@@ -371,13 +322,7 @@ static const char* get_scaling_algorithm_name(int algorithm) {
 
 // Convert AVFrame to Android Bitmap
 static jobject frame_to_bitmap(JNIEnv *env, AVFrame *frame, int target_dimension, int quality) {
-    auto conversion_start = std::chrono::high_resolution_clock::now();
-    
-    // Ensure JNI cache is initialized
     init_methods_cache(env);
-    
-    ALOGI("Thumbnail | Converting frame to bitmap | Source: %dx%d | Target: %dpx | Quality: %s",
-          frame->width, frame->height, target_dimension, get_quality_name(quality));
     
     // Calculate scaled dimensions while preserving aspect ratio
     // target_dimension is the maximum size for the largest side
@@ -402,18 +347,10 @@ static jobject frame_to_bitmap(JNIEnv *env, AVFrame *frame, int target_dimension
         height = (int)(height * scale);
     }
     
-    // Ensure minimum dimensions
     if (width < 1) width = 1;
     if (height < 1) height = 1;
-    
-    float scale_factor = (float)width / frame->width;
-    ALOGD("Thumbnail | Scaling dimensions | Original: %dx%d → Scaled: %dx%d (%.1f%%)",
-          frame->width, frame->height, width, height, scale_factor * 100);
 
     // Select scaling algorithm based on quality
-    // FAST: SWS_FAST_BILINEAR - Fastest, lower quality
-    // NORMAL: SWS_POINT - Good balance (current default)
-    // HQ: SWS_LANCZOS - Best quality, slower
     int sws_algorithm;
     switch (quality) {
         case QUALITY_FAST:
@@ -427,73 +364,48 @@ static jobject frame_to_bitmap(JNIEnv *env, AVFrame *frame, int target_dimension
             sws_algorithm = SWS_POINT;
             break;
     }
-    
-    ALOGD("Thumbnail | Using scaling algorithm: %s", get_scaling_algorithm_name(sws_algorithm));
 
     // Create SwsContext for scaling and format conversion
     // Android Bitmap.Config.ARGB_8888 expects BGRA byte order (little-endian)
     struct SwsContext *sws_ctx = sws_getContext(
         frame->width, frame->height, (AVPixelFormat)frame->format,
         width, height, AV_PIX_FMT_BGRA,
-        sws_algorithm,
-        NULL, NULL, NULL
+        sws_algorithm, NULL, NULL, NULL
     );
     
     if (!sws_ctx) {
-        ALOGE("Thumbnail | ✗ Failed to create SwsContext");
+        ALOGE("Thumbnail | Failed to create scaler");
         return NULL;
     }
     
-    // Allocate output buffer
-    int pixel_count = width * height;
-    ALOGV("Thumbnail | Allocating buffer for %d pixels (%d bytes)", 
-          pixel_count, pixel_count * 4);
-    
-    jintArray arr = env->NewIntArray(pixel_count);
+    jintArray arr = env->NewIntArray(width * height);
     if (!arr) {
-        ALOGE("Thumbnail | ✗ Failed to allocate int array for %d pixels", pixel_count);
+        ALOGE("Thumbnail | Failed to allocate array");
         sws_freeContext(sws_ctx);
         return NULL;
     }
     
     jint *pixels = env->GetIntArrayElements(arr, NULL);
     if (!pixels) {
-        ALOGE("Thumbnail | ✗ Failed to get array elements");
+        ALOGE("Thumbnail | Failed to get array elements");
         env->DeleteLocalRef(arr);
         sws_freeContext(sws_ctx);
         return NULL;
     }
     
-    // Setup destination buffer
     uint8_t *dst_data[4] = { (uint8_t*)pixels };
     int dst_linesize[4] = { width * 4 };
-    
-    ALOGV("Thumbnail | Starting pixel format conversion and scaling...");
-    auto scale_start = std::chrono::high_resolution_clock::now();
-    
-    // Scale and convert
-    sws_scale(sws_ctx, frame->data, frame->linesize, 0, frame->height,
-              dst_data, dst_linesize);
-    
-    auto scale_end = std::chrono::high_resolution_clock::now();
-    auto scale_duration = std::chrono::duration_cast<std::chrono::milliseconds>(scale_end - scale_start);
-    ALOGD("Thumbnail | Scaling completed in %lld ms", (long long)scale_duration.count());
-    
+    sws_scale(sws_ctx, frame->data, frame->linesize, 0, frame->height, dst_data, dst_linesize);
     sws_freeContext(sws_ctx);
-    
-    // Create Android Bitmap
     env->ReleaseIntArrayElements(arr, pixels, 0);
     
-    ALOGV("Thumbnail | Creating Android Bitmap object...");
-    
-    // Get the ARGB_8888 config object (not the field ID!)
     jobject bitmap_config = env->GetStaticObjectField(
         android_graphics_Bitmap_Config, 
         android_graphics_Bitmap_Config_ARGB_8888
     );
     
     if (!bitmap_config) {
-        ALOGE("Thumbnail | ✗ Failed to get Bitmap.Config.ARGB_8888");
+        ALOGE("Thumbnail | Failed to get bitmap config");
         env->DeleteLocalRef(arr);
         return NULL;
     }
@@ -505,8 +417,7 @@ static jobject frame_to_bitmap(JNIEnv *env, AVFrame *frame, int target_dimension
     );
     
     if (env->ExceptionCheck()) {
-        ALOGE("Thumbnail | ✗ Exception while creating bitmap");
-        env->ExceptionDescribe();
+        ALOGE("Thumbnail | Exception creating bitmap");
         env->ExceptionClear();
         env->DeleteLocalRef(arr);
         env->DeleteLocalRef(bitmap_config);
@@ -515,11 +426,6 @@ static jobject frame_to_bitmap(JNIEnv *env, AVFrame *frame, int target_dimension
     
     env->DeleteLocalRef(arr);
     env->DeleteLocalRef(bitmap_config);
-    
-    auto conversion_end = std::chrono::high_resolution_clock::now();
-    auto conversion_duration = std::chrono::duration_cast<std::chrono::milliseconds>(conversion_end - conversion_start);
-    ALOGI("Thumbnail | ✓ Bitmap conversion successful | Time: %lld ms | Size: %dx%d",
-          (long long)conversion_duration.count(), width, height);
     
     return bitmap;
 }
@@ -555,59 +461,31 @@ jni_func(jobject, grabThumbnailFast, jstring jpath, jdouble position, jint dimen
         return NULL;
     }
     
-    ALOGI("════════════════════════════════════════════════════════════════");
-    ALOGI("Thumbnail | Starting extraction");
-    ALOGI("Thumbnail | Position: %.2fs | Dimension: %dpx | Quality: %s | HW Decode: %s",
-          position, dimension, get_quality_name(quality), use_hw_dec ? "ON" : "OFF");
-    ALOGD("Thumbnail | File: %s", path);
+    ALOGV("Thumbnail | Start: pos=%.1fs dim=%dpx quality=%s hw=%d",
+          position, dimension, get_quality_name(quality), use_hw_dec);
     
-    // ========================================================================
-    // STEP 1: Open video file
-    // ========================================================================
-    ALOGI("Thumbnail | [1/5] Opening video file...");
-    auto step_start = std::chrono::high_resolution_clock::now();
-    
+    // Open video file
     AVFormatContext *format_ctx = NULL;
     if (avformat_open_input(&format_ctx, path, NULL, NULL) < 0) {
-        ALOGE("Thumbnail | ✗ Could not open file: %s", path);
+        ALOGE("Thumbnail | Failed to open file");
         env->ReleaseStringUTFChars(jpath, path);
         return NULL;
     }
-    
-    auto step_end = std::chrono::high_resolution_clock::now();
-    auto step_duration = std::chrono::duration_cast<std::chrono::milliseconds>(step_end - step_start);
-    ALOGD("Thumbnail | ✓ File opened successfully in %lld ms", (long long)step_duration.count());
-    
     env->ReleaseStringUTFChars(jpath, path);
     
-    // Find stream information (ULTRA FAST - minimal analysis for all qualities)
-    // Directly set properties on context instead of passing dictionary array
-    ALOGI("Thumbnail | [1/5] Analyzing stream info...");
-    step_start = std::chrono::high_resolution_clock::now();
-    
-    // Ultra-fast analysis for all qualities - just enough to find video stream
-    format_ctx->max_analyze_duration = 100000;    // 0.1 second (10x faster!)
-    format_ctx->probesize = 500000;               // 500KB (4-20x smaller!)
-    format_ctx->fps_probe_size = 1;               // Probe only 1 frame for FPS
-    format_ctx->max_ts_probe = 1;                 // Minimal timestamp probing
-    
-    ALOGD("Thumbnail | Analysis params: duration=0.1s, probesize=500KB (ULTRA FAST)");
+    // Find stream information (ultra-fast minimal analysis)
+    format_ctx->max_analyze_duration = 100000;
+    format_ctx->probesize = 500000;
+    format_ctx->fps_probe_size = 1;
+    format_ctx->max_ts_probe = 1;
     
     if (avformat_find_stream_info(format_ctx, NULL) < 0) {
-        ALOGE("Thumbnail | ✗ Could not find stream info");
+        ALOGE("Thumbnail | Failed to find stream info");
         avformat_close_input(&format_ctx);
         return NULL;
     }
     
-    step_end = std::chrono::high_resolution_clock::now();
-    step_duration = std::chrono::duration_cast<std::chrono::milliseconds>(step_end - step_start);
-    ALOGD("Thumbnail | ✓ Stream info analyzed in %lld ms", (long long)step_duration.count());
-    
-    // ========================================================================
-    // STEP 2: Find video stream
-    // ========================================================================
-    ALOGI("Thumbnail | [2/5] Finding video stream...");
-    
+    // Find video stream
     int video_stream_idx = -1;
     AVCodecParameters *codec_params = NULL;
     
@@ -620,155 +498,81 @@ jni_func(jobject, grabThumbnailFast, jstring jpath, jdouble position, jint dimen
     }
     
     if (video_stream_idx == -1) {
-        ALOGE("Thumbnail | ✗ Could not find video stream (total streams: %d)", format_ctx->nb_streams);
+        ALOGE("Thumbnail | No video stream found");
         avformat_close_input(&format_ctx);
         return NULL;
     }
     
     AVStream *video_stream = format_ctx->streams[video_stream_idx];
     
-    ALOGD("Thumbnail | ✓ Video stream found | Index: %d | Resolution: %dx%d | Format: %s",
-          video_stream_idx, codec_params->width, codec_params->height,
-          avcodec_get_name(codec_params->codec_id));
-    
-    // ========================================================================
-    // STEP 3: Initialize codec
-    // ========================================================================
-    ALOGI("Thumbnail | [3/5] Initializing codec...");
-    step_start = std::chrono::high_resolution_clock::now();
-    
-    // Use cached codec lookup for faster initialization
+    // Initialize codec
     const AVCodec *codec = get_cached_codec(codec_params->codec_id);
     if (!codec) {
-        ALOGE("Thumbnail | ✗ Codec not found for codec_id: %d", codec_params->codec_id);
+        ALOGE("Thumbnail | Codec not found");
         avformat_close_input(&format_ctx);
         return NULL;
     }
     
-    ALOGD("Thumbnail | Codec: %s (%s)", codec->name, codec->long_name);
-    
     AVCodecContext *codec_ctx = avcodec_alloc_context3(codec);
     if (!codec_ctx) {
-        ALOGE("Thumbnail | ✗ Could not allocate codec context");
+        ALOGE("Thumbnail | Failed to allocate codec context");
         avformat_close_input(&format_ctx);
         return NULL;
     }
     
     if (avcodec_parameters_to_context(codec_ctx, codec_params) < 0) {
-        ALOGE("Thumbnail | ✗ Could not copy codec params");
+        ALOGE("Thumbnail | Failed to copy codec params");
         avcodec_free_context(&codec_ctx);
         avformat_close_input(&format_ctx);
         return NULL;
     }
     
-    // OPTIMIZATION: Ultra-aggressive speed optimizations for all qualities
-    ALOGD("Thumbnail | Configuring decoder for maximum speed...");
-    
-    // Universal ultra-fast settings
-    codec_ctx->thread_count = 0;  // Auto-select (usually optimal)
-    codec_ctx->thread_type = FF_THREAD_SLICE;  // Slice threading = fastest for single frames
+    // Ultra-aggressive speed optimizations
+    codec_ctx->thread_count = 0;
+    codec_ctx->thread_type = FF_THREAD_SLICE;
     codec_ctx->flags |= AV_CODEC_FLAG_LOW_DELAY;
     codec_ctx->flags2 |= AV_CODEC_FLAG2_FAST;
+    codec_ctx->skip_frame = AVDISCARD_NONREF;
+    codec_ctx->skip_idct = AVDISCARD_BIDIR;
+    codec_ctx->skip_loop_filter = (quality == QUALITY_HQ) ? AVDISCARD_NONKEY : AVDISCARD_ALL;
+    codec_ctx->export_side_data = 0;
+    codec_ctx->err_recognition = 0;
+    codec_ctx->workaround_bugs = 0;
+    codec_ctx->strict_std_compliance = FF_COMPLIANCE_EXPERIMENTAL;
     
-    // Aggressive frame skipping for maximum speed
-    codec_ctx->skip_frame = AVDISCARD_NONREF;      // Skip non-reference frames
-    codec_ctx->skip_idct = AVDISCARD_BIDIR;        // Skip IDCT for B-frames
-    codec_ctx->skip_loop_filter = AVDISCARD_ALL;   // Skip deblocking filter
-    
-    // Additional speed optimizations
-    codec_ctx->export_side_data = 0;   // Don't export metadata
-    codec_ctx->err_recognition = 0;     // Disable error checking
-    codec_ctx->workaround_bugs = 0;     // Don't try to work around encoder bugs
-    codec_ctx->strict_std_compliance = FF_COMPLIANCE_EXPERIMENTAL;  // Allow shortcuts
-    
-    // Quality-specific scaling only (doesn't affect decode speed much)
-    if (quality == QUALITY_HQ) {
-        // Only difference for HQ: Don't skip loop filter for final frame
-        codec_ctx->skip_loop_filter = AVDISCARD_NONKEY;  // Skip only for non-keyframes
-        ALOGD("Thumbnail | Decoder: ULTRA FAST with HQ scaling");
-    } else {
-        ALOGD("Thumbnail | Decoder: ULTRA FAST mode");
-    }
-    
-    // OPTIMIZATION: Enable hardware decoding if requested (using cached HW context)
-    if (use_hw_dec) {
-        ALOGD("Thumbnail | Attempting hardware acceleration...");
-        
-        // Use cached hardware device context (much faster than creating new one)
-        if (init_hw_device_context()) {
-            std::lock_guard<std::mutex> lock(g_hw_ctx_mutex);
-            if (g_hw_device_ctx) {
-                codec_ctx->hw_device_ctx = av_buffer_ref(g_hw_device_ctx);
-                ALOGI("Thumbnail | ✓ Hardware acceleration enabled (cached MediaCodec context)");
-            }
-        } else {
-            ALOGW("Thumbnail | Hardware acceleration unavailable, using software decode");
+    // Enable hardware decoding if requested
+    if (use_hw_dec && init_hw_device_context()) {
+        std::lock_guard<std::mutex> lock(g_hw_ctx_mutex);
+        if (g_hw_device_ctx) {
+            codec_ctx->hw_device_ctx = av_buffer_ref(g_hw_device_ctx);
         }
-    } else {
-        ALOGD("Thumbnail | Hardware decoding disabled by request");
     }
     
     if (avcodec_open2(codec_ctx, codec, NULL) < 0) {
-        ALOGE("Thumbnail | ✗ Could not open codec");
+        ALOGE("Thumbnail | Failed to open codec");
         avcodec_free_context(&codec_ctx);
         avformat_close_input(&format_ctx);
         return NULL;
     }
     
-    step_end = std::chrono::high_resolution_clock::now();
-    step_duration = std::chrono::duration_cast<std::chrono::milliseconds>(step_end - step_start);
-    ALOGD("Thumbnail | ✓ Codec initialized in %lld ms", (long long)step_duration.count());
-    
-    // ========================================================================
-    // STEP 4: Seek to position (ultra-fast seeking)
-    // ========================================================================
-    ALOGI("Thumbnail | [4/5] Seeking to position %.2fs...", position);
-    step_start = std::chrono::high_resolution_clock::now();
-    
-    // OPTIMIZATION: Skip seeking entirely if position is near start (< 1 second)
+    // Seek to position (skip if near start)
     if (position > 1.0 && position < INT64_MAX / AV_TIME_BASE) {
         int64_t timestamp = (int64_t)(position * AV_TIME_BASE);
-        
-        // Always use fastest seeking - AVSEEK_FLAG_ANY seeks to nearest frame
-        int seek_flags = AVSEEK_FLAG_ANY;
-        
-        ALOGD("Thumbnail | Seek strategy: FAST (any nearest frame)");
-        
-        // Seek to target frame using video stream index
         if (av_seek_frame(format_ctx, video_stream_idx, 
                           timestamp * video_stream->time_base.den / video_stream->time_base.num / AV_TIME_BASE,
-                          seek_flags) < 0) {
-            ALOGW("Thumbnail | Seek failed, using first available frame");
-        } else {
-            step_end = std::chrono::high_resolution_clock::now();
-            step_duration = std::chrono::duration_cast<std::chrono::milliseconds>(step_end - step_start);
-            ALOGD("Thumbnail | ✓ Seek completed in %lld ms", (long long)step_duration.count());
+                          AVSEEK_FLAG_ANY) < 0) {
+            ALOGW("Thumbnail | Seek failed, using first frame");
         }
-        
-        // Flush codec buffers after seek
         avcodec_flush_buffers(codec_ctx);
-    } else {
-        ALOGD("Thumbnail | Using first frame (position %.2fs)", position);
     }
     
-    // ========================================================================
-    // STEP 5: Decode frame at position
-    // ========================================================================
-    ALOGI("Thumbnail | [5/5] Decoding frame...");
-    step_start = std::chrono::high_resolution_clock::now();
-    
+    // Decode frame
     AVPacket *packet = av_packet_alloc();
-    if (!packet) {
-        ALOGE("Thumbnail | ✗ Failed to allocate packet");
-        avcodec_free_context(&codec_ctx);
-        avformat_close_input(&format_ctx);
-        return NULL;
-    }
-    
     AVFrame *frame = av_frame_alloc();
-    if (!frame) {
-        ALOGE("Thumbnail | ✗ Failed to allocate frame");
-        av_packet_free(&packet);
+    if (!packet || !frame) {
+        ALOGE("Thumbnail | Failed to allocate packet/frame");
+        if (packet) av_packet_free(&packet);
+        if (frame) av_frame_free(&frame);
         avcodec_free_context(&codec_ctx);
         avformat_close_input(&format_ctx);
         return NULL;
@@ -806,27 +610,17 @@ jni_func(jobject, grabThumbnailFast, jstring jpath, jdouble position, jint dimen
                     const double match_tolerance = 5.0;  // Accept frames within 5s of target
                     
                     if (position > 0.0 && frame_time < position - skip_tolerance) {
-                        // Still too far from target, skip this frame
-                        ALOGV("Thumbnail | Skipping frame at %.2fs (too early, target: %.2fs)",
-                              frame_time, position);
                         av_frame_unref(frame);
                         continue;
                     }
                     
-                    // Accept frame if we're anywhere close to target
+                    // Accept frame if close to target
                     if (position == 0.0 || frame_time >= position - match_tolerance) {
-                        ALOGI("Thumbnail | ✓ Found matching frame at %.2fs (target: %.2fs, tolerance: ±%.1fs)", 
-                              frame_time, position, match_tolerance);
-                        ALOGD("Thumbnail | Frame info | Type: %s | Size: %dx%d | Format: %d",
-                              (frame->flags & AV_FRAME_FLAG_KEY) ? "KEYFRAME" : "REGULAR",
-                              frame->width, frame->height, frame->format);
-                        
-                        // Convert and create bitmap
                         bitmap = frame_to_bitmap(env, frame, dimension, quality);
                         if (bitmap) {
                             frame_found = true;
                         } else {
-                            ALOGE("Thumbnail | ✗ Failed to convert frame to bitmap");
+                            ALOGE("Thumbnail | Failed to convert frame");
                         }
                         break;
                     }
@@ -844,11 +638,6 @@ jni_func(jobject, grabThumbnailFast, jstring jpath, jdouble position, jint dimen
         av_packet_unref(packet);
     }
     
-    step_end = std::chrono::high_resolution_clock::now();
-    step_duration = std::chrono::duration_cast<std::chrono::milliseconds>(step_end - step_start);
-    ALOGD("Thumbnail | Decode stats | Packets: %d | Frames decoded: %d | Time: %lld ms",
-          packets_read, frames_decoded, (long long)step_duration.count());
-    
     // Cleanup
     av_frame_free(&frame);
     av_packet_free(&packet);
@@ -859,14 +648,11 @@ jni_func(jobject, grabThumbnailFast, jstring jpath, jdouble position, jint dimen
     auto total_duration = std::chrono::duration_cast<std::chrono::milliseconds>(total_end - total_start);
     
     if (!frame_found) {
-        ALOGE("Thumbnail | ✗ FAILED | Could not find frame at position %.2fs", position);
-        ALOGE("Thumbnail | Total time: %lld ms | Frames decoded: %d",
-              (long long)total_duration.count(), frames_decoded);
-        ALOGI("════════════════════════════════════════════════════════════════");
+        ALOGE("Thumbnail | Failed: no frame found (pos=%.1fs, decoded=%d, time=%lldms)",
+              position, frames_decoded, (long long)total_duration.count());
         return NULL;
     }
     
-    ALOGI("Thumbnail | ✓ SUCCESS | Total time: %lld ms", (long long)total_duration.count());
-    ALOGI("════════════════════════════════════════════════════════════════");
+    ALOGI("Thumbnail | Success: %lldms", (long long)total_duration.count());
     return bitmap;
 }
