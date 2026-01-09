@@ -35,6 +35,7 @@ object FastThumbnails {
      * @param position Time position in seconds (default: 0.0)
      * @param dimension Max dimension for longest side (width or height) in pixels (default: 512)
      * @param useHwDec Whether to use hardware acceleration if available (default: true)
+     * @param quality Quality preset for thumbnail generation (default: NORMAL)
      * @return Bitmap thumbnail, or null if generation fails
      * @throws IllegalStateException if not initialized
      */
@@ -44,7 +45,8 @@ object FastThumbnails {
         path: String,
         position: Double = 0.0,
         dimension: Int = 512,
-        useHwDec: Boolean = true
+        useHwDec: Boolean = true,
+        quality: ThumbnailQuality = ThumbnailQuality.NORMAL
     ): Bitmap? {
         check(initialized.get()) {
             "FastThumbnails not initialized. Call initialize(context) first."
@@ -55,7 +57,7 @@ object FastThumbnails {
         }
         
         return try {
-            MPVLib.grabThumbnailFast(path, position, dimension, useHwDec)
+            MPVLib.grabThumbnailFast(path, position, dimension, useHwDec, quality.value)
         } catch (e: Exception) {
             e.printStackTrace()
             null
@@ -69,15 +71,17 @@ object FastThumbnails {
      * @param position Time position in seconds (default: 0.0)
      * @param dimension Max dimension for longest side (width or height) in pixels (default: 512)
      * @param useHwDec Whether to use hardware acceleration if available (default: true)
+     * @param quality Quality preset for thumbnail generation (default: NORMAL)
      * @return Bitmap thumbnail, or null
      */
     suspend fun generateAsync(
         path: String,
         position: Double = 0.0,
         dimension: Int = 512,
-        useHwDec: Boolean = true
+        useHwDec: Boolean = true,
+        quality: ThumbnailQuality = ThumbnailQuality.NORMAL
     ): Bitmap? = withContext(Dispatchers.IO) {
-        generate(path, position, dimension, useHwDec)
+        generate(path, position, dimension, useHwDec, quality)
     }
     
     /**
@@ -87,6 +91,7 @@ object FastThumbnails {
      * @param positions List of time positions
      * @param dimension Max dimension for longest side (width or height) in pixels (default: 512)
      * @param useHwDec Whether to use hardware acceleration if available (default: true)
+     * @param quality Quality preset for thumbnail generation (default: NORMAL)
      * @return List of bitmaps (may contain nulls)
      */
     @JvmStatic
@@ -95,10 +100,11 @@ object FastThumbnails {
         path: String,
         positions: List<Double>,
         dimension: Int = 512,
-        useHwDec: Boolean = true
+        useHwDec: Boolean = true,
+        quality: ThumbnailQuality = ThumbnailQuality.NORMAL
     ): List<Bitmap?> {
         return positions.map { position ->
-            generate(path, position, dimension, useHwDec)
+            generate(path, position, dimension, useHwDec, quality)
         }
     }
     
@@ -109,16 +115,18 @@ object FastThumbnails {
      * @param positions List of positions
      * @param dimension Max dimension for longest side (width or height) in pixels (default: 512)
      * @param useHwDec Whether to use hardware acceleration if available (default: true)
+     * @param quality Quality preset for thumbnail generation (default: NORMAL)
      * @return List of bitmaps
      */
     suspend fun generateMultipleAsync(
         path: String,
         positions: List<Double>,
         dimension: Int = 512,
-        useHwDec: Boolean = true
+        useHwDec: Boolean = true,
+        quality: ThumbnailQuality = ThumbnailQuality.NORMAL
     ): List<Bitmap?> = withContext(Dispatchers.IO) {
         positions.map { position ->
-            generate(path, position, dimension, useHwDec)
+            generate(path, position, dimension, useHwDec, quality)
         }
     }
     
@@ -130,13 +138,20 @@ object FastThumbnails {
      * @param position Time position in seconds (default: 0.0)
      * @param dimension Max dimension for longest side (width or height) in pixels (default: 512)
      * @param useHwDec Whether to use hardware acceleration if available (default: true)
+     * @param quality Quality preset for thumbnail generation (default: NORMAL)
      * @return Pair of (bitmap, time in milliseconds)
      */
     @JvmStatic
     @JvmOverloads
-    fun benchmark(path: String, position: Double = 0.0, dimension: Int = 512, useHwDec: Boolean = true): Pair<Bitmap?, Long> {
+    fun benchmark(
+        path: String,
+        position: Double = 0.0,
+        dimension: Int = 512,
+        useHwDec: Boolean = true,
+        quality: ThumbnailQuality = ThumbnailQuality.NORMAL
+    ): Pair<Bitmap?, Long> {
         val start = System.currentTimeMillis()
-        val bitmap = generate(path, position, dimension, useHwDec)
+        val bitmap = generate(path, position, dimension, useHwDec, quality)
         val elapsed = System.currentTimeMillis() - start
         return Pair(bitmap, elapsed)
     }

@@ -22,7 +22,7 @@ extern "C" {
 
 extern "C" {
     jni_func(jobject, grabThumbnail, jint dimension);
-    jni_func(jobject, grabThumbnailFast, jstring jpath, jdouble position, jint dimension, jboolean use_hw_dec);
+    jni_func(jobject, grabThumbnailFast, jstring jpath, jdouble position, jint dimension, jboolean use_hw_dec, jint quality);
     jni_func(void, setThumbnailJavaVM, jobject appctx);
 };
 
@@ -179,8 +179,15 @@ jni_func(void, setThumbnailJavaVM, jobject appctx) {
     }
 }
 
+// Quality level constants
+enum ThumbnailQuality {
+    QUALITY_FAST = 0,   // Fast extraction - lower quality
+    QUALITY_NORMAL = 1, // Normal quality (default)
+    QUALITY_HQ = 2      // High quality
+};
+
 // Convert AVFrame to Android Bitmap
-static jobject frame_to_bitmap(JNIEnv *env, AVFrame *frame, int target_dimension) {
+static jobject frame_to_bitmap(JNIEnv *env, AVFrame *frame, int target_dimension, int quality) {
     // Ensure JNI cache is initialized
     init_methods_cache(env);
     
@@ -211,12 +218,30 @@ static jobject frame_to_bitmap(JNIEnv *env, AVFrame *frame, int target_dimension
     if (width < 1) width = 1;
     if (height < 1) height = 1;
 
+    // Select scaling algorithm based on quality
+    // FAST: SWS_FAST_BILINEAR - Fastest, lower quality
+    // NORMAL: SWS_POINT - Good balance (current default)
+    // HQ: SWS_LANCZOS - Best quality, slower
+    int sws_algorithm;
+    switch (quality) {
+        case QUALITY_FAST:
+            sws_algorithm = SWS_FAST_BILINEAR;
+            break;
+        case QUALITY_HQ:
+            sws_algorithm = SWS_LANCZOS;
+            break;
+        case QUALITY_NORMAL:
+        default:
+            sws_algorithm = SWS_POINT;
+            break;
+    }
+
     // Create SwsContext for scaling and format conversion
     // Android Bitmap.Config.ARGB_8888 expects BGRA byte order (little-endian)
     struct SwsContext *sws_ctx = sws_getContext(
         frame->width, frame->height, (AVPixelFormat)frame->format,
         width, height, AV_PIX_FMT_BGRA,
-        SWS_POINT,  // Fastest algorithm - good quality for thumbnails
+        sws_algorithm,
         NULL, NULL, NULL
     );
     
@@ -284,7 +309,7 @@ static jobject frame_to_bitmap(JNIEnv *env, AVFrame *frame, int target_dimension
     return bitmap;
 }
 
-jni_func(jobject, grabThumbnailFast, jstring jpath, jdouble position, jint dimension, jboolean use_hw_dec) {
+jni_func(jobject, grabThumbnailFast, jstring jpath, jdouble position, jint dimension, jboolean use_hw_dec, jint quality) {
     std::lock_guard<std::mutex> lock(g_thumb_mutex);
     
     // Ensure JNI cache is initialized
@@ -299,6 +324,12 @@ jni_func(jobject, grabThumbnailFast, jstring jpath, jdouble position, jint dimen
     if (position < 0.0) {
         ALOGE("grabThumbnailFast: invalid position %.2f (must be >= 0)", position);
         return NULL;
+    }
+    
+    // Validate quality parameter
+    if (quality < 0 || quality > 2) {
+        ALOGW("grabThumbnailFast: invalid quality %d, using NORMAL (1)", quality);
+        quality = 1;
     }
     
     const char *path = env->GetStringUTFChars(jpath, NULL);
@@ -321,10 +352,26 @@ jni_func(jobject, grabThumbnailFast, jstring jpath, jdouble position, jint dimen
     
     env->ReleaseStringUTFChars(jpath, path);
     
-    // Find stream information (with limited analysis for speed)
+    // Find stream information (analysis duration based on quality)
     // Directly set properties on context instead of passing dictionary array
-    format_ctx->max_analyze_duration = 1000000; // 1 second max analysis
-    format_ctx->probesize = 5000000;            // 5MB max probe size
+    switch (quality) {
+        case QUALITY_FAST:
+            // Minimal analysis for speed
+            format_ctx->max_analyze_duration = 500000;   // 0.5 second max analysis
+            format_ctx->probesize = 2000000;             // 2MB max probe size
+            break;
+        case QUALITY_HQ:
+            // More thorough analysis for quality
+            format_ctx->max_analyze_duration = 5000000;  // 5 seconds max analysis
+            format_ctx->probesize = 10000000;            // 10MB max probe size
+            break;
+        case QUALITY_NORMAL:
+        default:
+            // Balanced analysis (current default)
+            format_ctx->max_analyze_duration = 1000000;  // 1 second max analysis
+            format_ctx->probesize = 5000000;             // 5MB max probe size
+            break;
+    }
     
     if (avformat_find_stream_info(format_ctx, NULL) < 0) {
         ALOGE("grabThumbnailFast: Could not find stream info");
@@ -378,11 +425,38 @@ jni_func(jobject, grabThumbnailFast, jstring jpath, jdouble position, jint dimen
         return NULL;
     }
     
-    // OPTIMIZATION: Configure for speed
-    codec_ctx->thread_count = 2;  // 2-4 threads optimal for thumbnails
-    codec_ctx->thread_type = FF_THREAD_SLICE;  // Slice threading faster for single frames
-    codec_ctx->flags |= AV_CODEC_FLAG_LOW_DELAY;
-    codec_ctx->flags2 |= AV_CODEC_FLAG2_FAST;
+    // OPTIMIZATION: Configure decoder based on quality level
+    switch (quality) {
+        case QUALITY_FAST:
+            // Maximize speed, minimize quality
+            codec_ctx->thread_count = 1;  // Single thread for fastest startup
+            codec_ctx->thread_type = FF_THREAD_SLICE;
+            codec_ctx->flags |= AV_CODEC_FLAG_LOW_DELAY;
+            codec_ctx->flags2 |= AV_CODEC_FLAG2_FAST;
+            codec_ctx->skip_frame = AVDISCARD_NONREF;  // Skip non-reference frames
+            codec_ctx->skip_idct = AVDISCARD_BIDIR;    // Skip some decoding steps
+            codec_ctx->skip_loop_filter = AVDISCARD_ALL;  // Skip loop filter
+            break;
+            
+        case QUALITY_HQ:
+            // Maximize quality, accept slower speed
+            codec_ctx->thread_count = 4;  // More threads for better quality processing
+            codec_ctx->thread_type = FF_THREAD_FRAME;  // Frame threading for quality
+            // Don't set fast flags for HQ
+            codec_ctx->skip_frame = AVDISCARD_NONE;
+            codec_ctx->skip_idct = AVDISCARD_NONE;
+            codec_ctx->skip_loop_filter = AVDISCARD_NONE;
+            break;
+            
+        case QUALITY_NORMAL:
+        default:
+            // Balanced settings (current default)
+            codec_ctx->thread_count = 2;  // 2 threads optimal for thumbnails
+            codec_ctx->thread_type = FF_THREAD_SLICE;  // Slice threading faster for single frames
+            codec_ctx->flags |= AV_CODEC_FLAG_LOW_DELAY;
+            codec_ctx->flags2 |= AV_CODEC_FLAG2_FAST;
+            break;
+    }
     
     // OPTIMIZATION: Enable hardware decoding if requested
     if (use_hw_dec) {
@@ -411,15 +485,27 @@ jni_func(jobject, grabThumbnailFast, jstring jpath, jdouble position, jint dimen
     }
     
     // ========================================================================
-    // STEP 4: Seek to position (optimized strategy)
+    // STEP 4: Seek to position (strategy based on quality)
     // ========================================================================
     if (position > 0.0 && position < INT64_MAX / AV_TIME_BASE) {
         int64_t timestamp = (int64_t)(position * AV_TIME_BASE);
         
-        // Smart seeking: use BACKWARD for accuracy, ANY for speed on short seeks
-        int seek_flags = AVSEEK_FLAG_BACKWARD;
-        if (position < 5.0) {  // For positions < 5s, seek directly to any frame
-            seek_flags = AVSEEK_FLAG_ANY;
+        // Smart seeking based on quality level
+        int seek_flags;
+        switch (quality) {
+            case QUALITY_FAST:
+                // Fastest seeking - any frame
+                seek_flags = AVSEEK_FLAG_ANY;
+                break;
+            case QUALITY_HQ:
+                // Most accurate seeking - always backward to keyframe
+                seek_flags = AVSEEK_FLAG_BACKWARD;
+                break;
+            case QUALITY_NORMAL:
+            default:
+                // Balanced: use BACKWARD for accuracy, ANY for speed on short seeks
+                seek_flags = position < 5.0 ? AVSEEK_FLAG_ANY : AVSEEK_FLAG_BACKWARD;
+                break;
         }
         
         // Seek to target frame using video stream index for better precision
@@ -477,19 +563,37 @@ jni_func(jobject, grabThumbnailFast, jstring jpath, jdouble position, jint dimen
                     }
                     
                     // OPTIMIZATION: Skip frames that are too early (saves decoding time)
-                    if (position > 0.0 && frame_time < position - 1.5) {
+                    // Tolerance varies by quality
+                    double skip_tolerance, match_tolerance;
+                    switch (quality) {
+                        case QUALITY_FAST:
+                            skip_tolerance = 3.0;   // More aggressive skipping
+                            match_tolerance = 2.0;  // Less precise matching
+                            break;
+                        case QUALITY_HQ:
+                            skip_tolerance = 0.5;   // Minimal skipping
+                            match_tolerance = 0.5;  // Precise matching
+                            break;
+                        case QUALITY_NORMAL:
+                        default:
+                            skip_tolerance = 1.5;   // Balanced skipping
+                            match_tolerance = 1.0;  // Balanced matching
+                            break;
+                    }
+                    
+                    if (position > 0.0 && frame_time < position - skip_tolerance) {
                         // Still far from target, skip this frame
                         av_frame_unref(frame);
                         continue;
                     }
                     
                     // Check if we've reached the desired position (with tolerance)
-                    if (position == 0.0 || frame_time >= position - 1.0) {
-                        ALOGV("grabThumbnailFast: Found frame at %.2fs (target: %.2fs)", 
-                              frame_time, position);
+                    if (position == 0.0 || frame_time >= position - match_tolerance) {
+                        ALOGV("grabThumbnailFast: Found frame at %.2fs (target: %.2fs) with quality %d", 
+                              frame_time, position, quality);
                         
                         // Convert and create bitmap
-                        bitmap = frame_to_bitmap(env, frame, dimension);
+                        bitmap = frame_to_bitmap(env, frame, dimension, quality);
                         if (bitmap) {
                             frame_found = true;
                         } else {
