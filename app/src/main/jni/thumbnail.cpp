@@ -580,32 +580,18 @@ jni_func(jobject, grabThumbnailFast, jstring jpath, jdouble position, jint dimen
     
     env->ReleaseStringUTFChars(jpath, path);
     
-    // Find stream information (analysis duration based on quality)
+    // Find stream information (ULTRA FAST - minimal analysis for all qualities)
     // Directly set properties on context instead of passing dictionary array
     ALOGI("Thumbnail | [1/5] Analyzing stream info...");
     step_start = std::chrono::high_resolution_clock::now();
     
-    switch (quality) {
-        case QUALITY_FAST:
-            // Minimal analysis for speed
-            format_ctx->max_analyze_duration = 500000;   // 0.5 second max analysis
-            format_ctx->probesize = 2000000;             // 2MB max probe size
-            ALOGD("Thumbnail | Analysis params: duration=0.5s, probesize=2MB (FAST mode)");
-            break;
-        case QUALITY_HQ:
-            // More thorough analysis for quality
-            format_ctx->max_analyze_duration = 5000000;  // 5 seconds max analysis
-            format_ctx->probesize = 10000000;            // 10MB max probe size
-            ALOGD("Thumbnail | Analysis params: duration=5s, probesize=10MB (HQ mode)");
-            break;
-        case QUALITY_NORMAL:
-        default:
-            // Balanced analysis (current default)
-            format_ctx->max_analyze_duration = 1000000;  // 1 second max analysis
-            format_ctx->probesize = 5000000;             // 5MB max probe size
-            ALOGD("Thumbnail | Analysis params: duration=1s, probesize=5MB (NORMAL mode)");
-            break;
-    }
+    // Ultra-fast analysis for all qualities - just enough to find video stream
+    format_ctx->max_analyze_duration = 100000;    // 0.1 second (10x faster!)
+    format_ctx->probesize = 500000;               // 500KB (4-20x smaller!)
+    format_ctx->fps_probe_size = 1;               // Probe only 1 frame for FPS
+    format_ctx->max_ts_probe = 1;                 // Minimal timestamp probing
+    
+    ALOGD("Thumbnail | Analysis params: duration=0.1s, probesize=500KB (ULTRA FAST)");
     
     if (avformat_find_stream_info(format_ctx, NULL) < 0) {
         ALOGE("Thumbnail | ✗ Could not find stream info");
@@ -675,44 +661,33 @@ jni_func(jobject, grabThumbnailFast, jstring jpath, jdouble position, jint dimen
         return NULL;
     }
     
-    // OPTIMIZATION: Configure decoder based on quality level
-    ALOGD("Thumbnail | Configuring decoder for %s quality...", get_quality_name(quality));
-    switch (quality) {
-        case QUALITY_FAST:
-            // Maximize speed, minimize quality
-            codec_ctx->thread_count = 0;  // Let FFmpeg auto-select (often faster than 1)
-            codec_ctx->thread_type = FF_THREAD_SLICE;
-            codec_ctx->flags |= AV_CODEC_FLAG_LOW_DELAY;
-            codec_ctx->flags2 |= AV_CODEC_FLAG2_FAST;
-            codec_ctx->skip_frame = AVDISCARD_NONREF;  // Skip non-reference frames
-            codec_ctx->skip_idct = AVDISCARD_BIDIR;    // Skip some decoding steps
-            codec_ctx->skip_loop_filter = AVDISCARD_ALL;  // Skip loop filter
-            // Additional fast mode optimizations
-            codec_ctx->export_side_data = 0;  // Don't export side data
-            codec_ctx->err_recognition = 0;   // Disable error recognition for speed
-            ALOGD("Thumbnail | Decoder: auto threads, slice threading, aggressive optimizations");
-            break;
-            
-        case QUALITY_HQ:
-            // Maximize quality, accept slower speed
-            codec_ctx->thread_count = 4;  // More threads for better quality processing
-            codec_ctx->thread_type = FF_THREAD_FRAME;  // Frame threading for quality
-            // Don't set fast flags for HQ
-            codec_ctx->skip_frame = AVDISCARD_NONE;
-            codec_ctx->skip_idct = AVDISCARD_NONE;
-            codec_ctx->skip_loop_filter = AVDISCARD_NONE;
-            ALOGD("Thumbnail | Decoder: 4 threads, frame threading, full quality decode");
-            break;
-            
-        case QUALITY_NORMAL:
-        default:
-            // Balanced settings (current default)
-            codec_ctx->thread_count = 2;  // 2 threads optimal for thumbnails
-            codec_ctx->thread_type = FF_THREAD_SLICE;  // Slice threading faster for single frames
-            codec_ctx->flags |= AV_CODEC_FLAG_LOW_DELAY;
-            codec_ctx->flags2 |= AV_CODEC_FLAG2_FAST;
-            ALOGD("Thumbnail | Decoder: 2 threads, slice threading, balanced settings");
-            break;
+    // OPTIMIZATION: Ultra-aggressive speed optimizations for all qualities
+    ALOGD("Thumbnail | Configuring decoder for maximum speed...");
+    
+    // Universal ultra-fast settings
+    codec_ctx->thread_count = 0;  // Auto-select (usually optimal)
+    codec_ctx->thread_type = FF_THREAD_SLICE;  // Slice threading = fastest for single frames
+    codec_ctx->flags |= AV_CODEC_FLAG_LOW_DELAY;
+    codec_ctx->flags2 |= AV_CODEC_FLAG2_FAST;
+    
+    // Aggressive frame skipping for maximum speed
+    codec_ctx->skip_frame = AVDISCARD_NONREF;      // Skip non-reference frames
+    codec_ctx->skip_idct = AVDISCARD_BIDIR;        // Skip IDCT for B-frames
+    codec_ctx->skip_loop_filter = AVDISCARD_ALL;   // Skip deblocking filter
+    
+    // Additional speed optimizations
+    codec_ctx->export_side_data = 0;   // Don't export metadata
+    codec_ctx->err_recognition = 0;     // Disable error checking
+    codec_ctx->workaround_bugs = 0;     // Don't try to work around encoder bugs
+    codec_ctx->strict_std_compliance = FF_COMPLIANCE_EXPERIMENTAL;  // Allow shortcuts
+    
+    // Quality-specific scaling only (doesn't affect decode speed much)
+    if (quality == QUALITY_HQ) {
+        // Only difference for HQ: Don't skip loop filter for final frame
+        codec_ctx->skip_loop_filter = AVDISCARD_NONKEY;  // Skip only for non-keyframes
+        ALOGD("Thumbnail | Decoder: ULTRA FAST with HQ scaling");
+    } else {
+        ALOGD("Thumbnail | Decoder: ULTRA FAST mode");
     }
     
     // OPTIMIZATION: Enable hardware decoding if requested (using cached HW context)
@@ -745,39 +720,21 @@ jni_func(jobject, grabThumbnailFast, jstring jpath, jdouble position, jint dimen
     ALOGD("Thumbnail | ✓ Codec initialized in %lld ms", (long long)step_duration.count());
     
     // ========================================================================
-    // STEP 4: Seek to position (strategy based on quality)
+    // STEP 4: Seek to position (ultra-fast seeking)
     // ========================================================================
     ALOGI("Thumbnail | [4/5] Seeking to position %.2fs...", position);
     step_start = std::chrono::high_resolution_clock::now();
     
-    if (position > 0.0 && position < INT64_MAX / AV_TIME_BASE) {
+    // OPTIMIZATION: Skip seeking entirely if position is near start (< 1 second)
+    if (position > 1.0 && position < INT64_MAX / AV_TIME_BASE) {
         int64_t timestamp = (int64_t)(position * AV_TIME_BASE);
         
-        // Smart seeking based on quality level
-        int seek_flags;
-        const char *seek_strategy;
-        switch (quality) {
-            case QUALITY_FAST:
-                // Fastest seeking - any frame
-                seek_flags = AVSEEK_FLAG_ANY;
-                seek_strategy = "ANY (fastest)";
-                break;
-            case QUALITY_HQ:
-                // Most accurate seeking - always backward to keyframe
-                seek_flags = AVSEEK_FLAG_BACKWARD;
-                seek_strategy = "BACKWARD (accurate)";
-                break;
-            case QUALITY_NORMAL:
-            default:
-                // Balanced: use BACKWARD for accuracy, ANY for speed on short seeks
-                seek_flags = position < 5.0 ? AVSEEK_FLAG_ANY : AVSEEK_FLAG_BACKWARD;
-                seek_strategy = position < 5.0 ? "ANY (short seek)" : "BACKWARD (long seek)";
-                break;
-        }
+        // Always use fastest seeking - AVSEEK_FLAG_ANY seeks to nearest frame
+        int seek_flags = AVSEEK_FLAG_ANY;
         
-        ALOGD("Thumbnail | Seek strategy: %s", seek_strategy);
+        ALOGD("Thumbnail | Seek strategy: FAST (any nearest frame)");
         
-        // Seek to target frame using video stream index for better precision
+        // Seek to target frame using video stream index
         if (av_seek_frame(format_ctx, video_stream_idx, 
                           timestamp * video_stream->time_base.den / video_stream->time_base.num / AV_TIME_BASE,
                           seek_flags) < 0) {
@@ -791,7 +748,7 @@ jni_func(jobject, grabThumbnailFast, jstring jpath, jdouble position, jint dimen
         // Flush codec buffers after seek
         avcodec_flush_buffers(codec_ctx);
     } else {
-        ALOGD("Thumbnail | Extracting from start of video (position %.2fs)", position);
+        ALOGD("Thumbnail | Using first frame (position %.2fs)", position);
     }
     
     // ========================================================================
@@ -823,7 +780,7 @@ jni_func(jobject, grabThumbnailFast, jstring jpath, jdouble position, jint dimen
     bool frame_found = false;
     int frames_decoded = 0;
     int packets_read = 0;
-    const int MAX_FRAMES = 300;  // Safety limit
+    const int MAX_FRAMES = 100;  // Reduced safety limit for speed (was 300)
     
     while (av_read_frame(format_ctx, packet) >= 0 && frames_decoded < MAX_FRAMES) {
         packets_read++;
@@ -843,34 +800,20 @@ jni_func(jobject, grabThumbnailFast, jstring jpath, jdouble position, jint dimen
                         frame_time = frame->best_effort_timestamp * av_q2d(video_stream->time_base);
                     }
                     
-                    // OPTIMIZATION: Skip frames that are too early (saves decoding time)
-                    // Tolerance varies by quality
-                    double skip_tolerance, match_tolerance;
-                    switch (quality) {
-                        case QUALITY_FAST:
-                            skip_tolerance = 3.0;   // More aggressive skipping
-                            match_tolerance = 2.0;  // Less precise matching
-                            break;
-                        case QUALITY_HQ:
-                            skip_tolerance = 0.5;   // Minimal skipping
-                            match_tolerance = 0.5;  // Precise matching
-                            break;
-                        case QUALITY_NORMAL:
-                        default:
-                            skip_tolerance = 1.5;   // Balanced skipping
-                            match_tolerance = 1.0;  // Balanced matching
-                            break;
-                    }
+                    // ULTRA FAST: Accept first frame if within reasonable range
+                    // For maximum speed, we accept very lenient matching
+                    const double skip_tolerance = 5.0;   // Skip frames more than 5s before target
+                    const double match_tolerance = 5.0;  // Accept frames within 5s of target
                     
                     if (position > 0.0 && frame_time < position - skip_tolerance) {
-                        // Still far from target, skip this frame
+                        // Still too far from target, skip this frame
                         ALOGV("Thumbnail | Skipping frame at %.2fs (too early, target: %.2fs)",
                               frame_time, position);
                         av_frame_unref(frame);
                         continue;
                     }
                     
-                    // Check if we've reached the desired position (with tolerance)
+                    // Accept frame if we're anywhere close to target
                     if (position == 0.0 || frame_time >= position - match_tolerance) {
                         ALOGI("Thumbnail | ✓ Found matching frame at %.2fs (target: %.2fs, tolerance: ±%.1fs)", 
                               frame_time, position, match_tolerance);
