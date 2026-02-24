@@ -1,39 +1,78 @@
-# mpv for Android
+# mpvlib Android
 
-[![Build Status](https://github.com/mpv-android/mpv-android/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/mpv-android/mpv-android/actions/workflows/build.yml)
+Android library based on libmpv for video playback and thumbnail generation.
 
-mpv-android is a video player for Android based on [libmpv](https://github.com/mpv-player/mpv).
+## Overview
+
+This library provides Android bindings for the mpv media player, allowing developers to integrate mpv's powerful video playback capabilities and thumbnail generation into their Android applications.
 
 ## Features
 
-* Hardware and software video decoding
-* Gesture-based seeking, volume/brightness control and more
-* libass support for styled subtitles
-* Secondary (or dual) subtitle support
-* High-quality rendering with advanced settings (scalers, debanding, interpolation, ...)
-* Play network streams with the "Open URL" function
-* Background playback, Picture-in-Picture, keyboard input supported
+- Full mpv media player integration
+- Video thumbnail generation
+- Support for multiple ABIs: armeabi-v7a, arm64-v8a, x86, x86_64
+- Kotlin-friendly API
 
-### Library?
+## Requirements
 
-mpv-android is **not** a library/module (AAR) you can import into your app.
+- Android 5.0 (API level 21) or higher
+- Android Studio with Gradle support
 
-If you'd like to use libmpv in your app you can use our code as inspiration.
-The important parts are [`MPVLib`](app/src/main/java/is/xyz/mpv/MPVLib.kt), [`BaseMPVView`](app/src/main/java/is/xyz/mpv/BaseMPVView.kt) and the [native code](app/src/main/jni/).
-Native code is built by [these scripts](buildscripts/).
+## Installation
 
-## Downloads
+Just one simple step:
 
-You can download mpv-android from the [Releases section](https://github.com/mpv-android/mpv-android/releases) or
+1. Download the pre-built AAR from the [releases page](https://github.com/marlboro-advance/mpvlib/releases)
+2. Create a `libs` directory in your app module if it doesn't exist
+3. Copy the AAR file (e.g., `mpv-android-lib-v0.0.1.aar`) to the `libs` directory
+4. Add this single line to your module-level build.gradle:
 
-[<img src="https://play.google.com/intl/en_us/badges/images/generic/en-play-badge.png" alt="Get it on Google Play" height="80">](https://play.google.com/store/apps/details?id=is.xyz.mpv)
+```gradle
+dependencies {
+    implementation(files("libs/mpv-android-lib-v0.0.1.aar"))
+}
+```
 
-[<img src="https://fdroid.gitlab.io/artwork/badge/get-it-on.png" alt="Get it on F-Droid" height="80">](https://f-droid.org/packages/is.xyz.mpv)
+That's it! No other configuration is needed.
 
-**Note**: Android TV is supported, but only available on F-Droid or by installing the APK manually.
+## Usage
 
-## Building from source
+Basic implementation example:
 
-Take a look at the [README](buildscripts/README.md) inside the `buildscripts` directory.
+```kotlin
+// Import the mpv library
+import is.xyz.mpv.MPVLib
 
-Some other documentation can be found at this [link](http://mpv-android.github.io/mpv-android/).
+// Initialize the player
+MPVLib.initialize(context)
+
+// Load and play a video file
+MPVLib.loadFile("path/to/video.mp4")
+
+// Handle playback controls
+MPVLib.play()
+MPVLib.pause()
+```
+
+## Building
+
+The library can be built using the provided build scripts:
+
+```bash
+./buildscripts/buildall.sh
+```
+
+Docker build is also supported:
+
+```bash
+./buildscripts/docker-build.sh
+```
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](https://github.com/marlboro-advance/mpv-lib/blob/main/LICENSE) file for details.
+
+## Acknowledgments
+
+- [mpv](https://mpv.io/) - The underlying media player
+- Original authors: Ilya Zhuravlev and sfan5

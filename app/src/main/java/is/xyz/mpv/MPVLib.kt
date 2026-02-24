@@ -3,8 +3,16 @@ package `is`.xyz.mpv
 import android.content.Context
 import android.graphics.Bitmap
 import android.view.Surface
-
-// Wrapper for native library
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 
 @Suppress("unused")
 object MPVLib {
@@ -21,11 +29,15 @@ object MPVLib {
     external fun attachSurface(surface: Surface)
     external fun detachSurface()
 
-    external fun command(cmd: Array<out String>)
+    external fun command(vararg cmd: String)
+    external fun commandNode(vararg cmd: String): MPVNode?
 
     external fun setOptionString(name: String, value: String): Int
 
     external fun grabThumbnail(dimension: Int): Bitmap?
+    external fun grabThumbnailFast(path: String, position: Double = 0.0, dimension: Int, useHwDec: Boolean = true): Bitmap?
+    external fun setThumbnailJavaVM(appctx: Context)
+    external fun clearThumbnailCache()
 
     external fun getPropertyInt(property: String): Int?
     external fun setPropertyInt(property: String, value: Int)
@@ -35,95 +47,164 @@ object MPVLib {
     external fun setPropertyBoolean(property: String, value: Boolean)
     external fun getPropertyString(property: String): String?
     external fun setPropertyString(property: String, value: String)
+    external fun getPropertyNode(property: String): MPVNode?
+    external fun setPropertyNode(property: String, node: MPVNode)
+
+    @JvmStatic
+    fun getPropertyFloat(property: String) = getPropertyDouble(property)?.toFloat()
+    @JvmStatic
+    fun setPropertyFloat(property: String, value: Float) = setPropertyDouble(property, value.toDouble())
+    @JvmStatic
+    fun getPropertyLong(property: String) = getPropertyInt(property)?.toLong()
+    @JvmStatic
+    fun setPropertyLong(property: String, value: Long) = setPropertyInt(property, value.toInt())
 
     external fun observeProperty(property: String, format: Int)
 
-    private val observers = mutableListOf<EventObserver>()
+    private val observers: MutableList<EventObserver> = ArrayList()
+
+    private val scope = CoroutineScope(Dispatchers.IO)
+    private val eventFlow = MutableSharedFlow<Int>()
+    private val eventPropertyFlow = MutableSharedFlow<String>()
+
+    data class Property<T>(
+        val type: Int,
+        val getProperty: (String) -> T?,
+        val flow: MutableSharedFlow<Pair<String, T>> = MutableSharedFlow(),
+        val map: MutableMap<String, StateFlow<T?>> = mutableMapOf(),
+    ) {
+        operator fun get(property: String): StateFlow<T?> {
+            return map.getOrPut(property) {
+                observeProperty(property, type)
+                flow.filter { it.first == property }
+                    .map { it.second }
+                    .stateIn(scope, SharingStarted.Lazily, getProperty(property))
+            }
+        }
+
+        operator fun set(property: String, value: T) {
+            when (type) {
+                MpvFormat.MPV_FORMAT_INT64 -> setPropertyInt(property, value as Int)
+                MpvFormat.MPV_FORMAT_FLAG -> setPropertyBoolean(property, value as Boolean)
+                MpvFormat.MPV_FORMAT_STRING -> setPropertyString(property, value as String)
+                MpvFormat.MPV_FORMAT_DOUBLE -> setPropertyDouble(property, value as Double)
+                MpvFormat.MPV_FORMAT_NODE,
+                MpvFormat.MPV_FORMAT_NODE_ARRAY,
+                MpvFormat.MPV_FORMAT_NODE_MAP -> setPropertyNode(property, value as MPVNode)
+                else -> throw IllegalArgumentException("Unsupported property type")
+            }
+        }
+
+        fun emit(property: String, value: T) {
+            scope.launch { flow.emit(Pair(property, value)) }
+        }
+    }
+
+    val propInt = Property(MpvFormat.MPV_FORMAT_INT64, ::getPropertyInt)
+    val propBoolean = Property(MpvFormat.MPV_FORMAT_FLAG, ::getPropertyBoolean)
+    val propString = Property(MpvFormat.MPV_FORMAT_STRING, ::getPropertyString)
+    val propDouble = Property(MpvFormat.MPV_FORMAT_DOUBLE, ::getPropertyDouble)
+    val propNode = Property(MpvFormat.MPV_FORMAT_NODE, ::getPropertyNode)
+
+    val propLong = Property(MpvFormat.MPV_FORMAT_INT64, { getPropertyInt(it)?.toLong() })
+    val propFloat = Property(MpvFormat.MPV_FORMAT_DOUBLE, { getPropertyDouble(it)?.toFloat() })
+
+    fun eventFlow(property: String): Flow<Unit> {
+        observeProperty(property, MpvFormat.MPV_FORMAT_NONE)
+        return eventPropertyFlow.filter { it == property }.map { it }
+    }
+
+    fun eventFlow(eventId: Int): Flow<Unit> {
+        return eventFlow.filter { it == eventId }.map { }
+    }
 
     @JvmStatic
     fun addObserver(o: EventObserver) {
-        synchronized(observers) {
-            observers.add(o)
-        }
+        synchronized(observers) { observers.add(o) }
     }
 
     @JvmStatic
     fun removeObserver(o: EventObserver) {
-        synchronized(observers) {
-            observers.remove(o)
-        }
+        synchronized(observers) { observers.remove(o) }
     }
 
     @JvmStatic
     fun eventProperty(property: String, value: Long) {
         synchronized(observers) {
-            for (o in observers)
-                o.eventProperty(property, value)
+            for (o in observers) o.eventProperty(property, value)
         }
+        propLong.emit(property, value)
+        propInt.emit(property, value.toInt())
     }
 
     @JvmStatic
     fun eventProperty(property: String, value: Boolean) {
         synchronized(observers) {
-            for (o in observers)
-                o.eventProperty(property, value)
+            for (o in observers) o.eventProperty(property, value)
         }
+        propBoolean.emit(property, value)
     }
 
     @JvmStatic
     fun eventProperty(property: String, value: Double) {
         synchronized(observers) {
-            for (o in observers)
-                o.eventProperty(property, value)
+            for (o in observers) o.eventProperty(property, value)
         }
+        propDouble.emit(property, value)
+        propFloat.emit(property, value.toFloat())
     }
 
     @JvmStatic
     fun eventProperty(property: String, value: String) {
         synchronized(observers) {
-            for (o in observers)
-                o.eventProperty(property, value)
+            for (o in observers) o.eventProperty(property, value)
         }
+        propString.emit(property, value)
+    }
+
+    @JvmStatic
+    fun eventProperty(property: String, value: MPVNode) {
+        synchronized(observers) {
+            for (o in observers) o.eventProperty(property, value)
+        }
+        propNode.emit(property, value)
     }
 
     @JvmStatic
     fun eventProperty(property: String) {
         synchronized(observers) {
-            for (o in observers)
-                o.eventProperty(property)
+            for (o in observers) o.eventProperty(property)
         }
+        scope.launch { eventPropertyFlow.emit(property) }
     }
 
     @JvmStatic
-    fun event(eventId: Int) {
+    fun event(eventId: Int, data: MPVNode) {
         synchronized(observers) {
-            for (o in observers)
-                o.event(eventId)
+            for (o in observers) o.event(eventId, data)
         }
+        scope.launch { eventFlow.emit(eventId) }
     }
 
-    private val log_observers = mutableListOf<LogObserver>()
+    private val log_observers: MutableList<LogObserver> = ArrayList()
+    val logFlow = MutableSharedFlow<Triple<String, Int, String>>()
 
     @JvmStatic
     fun addLogObserver(o: LogObserver) {
-        synchronized(log_observers) {
-            log_observers.add(o)
-        }
+        synchronized(log_observers) { log_observers.add(o) }
     }
 
     @JvmStatic
     fun removeLogObserver(o: LogObserver) {
-        synchronized(log_observers) {
-            log_observers.remove(o)
-        }
+        synchronized(log_observers) { log_observers.remove(o) }
     }
 
     @JvmStatic
     fun logMessage(prefix: String, level: Int, text: String) {
         synchronized(log_observers) {
-            for (o in log_observers)
-                o.logMessage(prefix, level, text)
+            for (o in log_observers) o.logMessage(prefix, level, text)
         }
+        scope.launch { logFlow.emit(Triple(prefix, level, text)) }
     }
 
     interface EventObserver {
@@ -132,7 +213,8 @@ object MPVLib {
         fun eventProperty(property: String, value: Boolean)
         fun eventProperty(property: String, value: String)
         fun eventProperty(property: String, value: Double)
-        fun event(eventId: Int)
+        fun eventProperty(property: String, value: MPVNode)
+        fun event(eventId: Int, data: MPVNode)
     }
 
     interface LogObserver {
@@ -162,8 +244,10 @@ object MPVLib {
         const val MPV_EVENT_START_FILE: Int = 6
         const val MPV_EVENT_END_FILE: Int = 7
         const val MPV_EVENT_FILE_LOADED: Int = 8
+
         @Deprecated("")
         const val MPV_EVENT_IDLE: Int = 11
+
         @Deprecated("")
         const val MPV_EVENT_TICK: Int = 14
         const val MPV_EVENT_CLIENT_MESSAGE: Int = 16

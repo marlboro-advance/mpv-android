@@ -3,17 +3,22 @@ buildscript {
     ext.kotlin_version = '2.0.21'
     repositories {
         mavenCentral()
+        gradlePluginPortal()
         google()
     }
+
     dependencies {
         classpath 'com.android.tools.build:gradle:8.13.2'
         classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
     }
 }
 
+// Maven publish plugin removed
+
 allprojects {
     repositories {
         mavenCentral()
+        gradlePluginPortal()
         google()
     }
 }

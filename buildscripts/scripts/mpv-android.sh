@@ -36,6 +36,9 @@ if [[ -z "$prefix32" && -z "$prefix64" && -z "$prefix_x64" && -z "$prefix_x86" ]
 	exit 255
 fi
 
+chmod +x $BUILD/scripts/write_versions.sh
+$BUILD/scripts/write_versions.sh $ndk_suffix
+
 PREFIX32=$prefix32 PREFIX64=$prefix64 PREFIX_X64=$prefix_x64 PREFIX_X86=$prefix_x86 \
 ndk-build -C app/src/main -j$cores
 
