@@ -36,7 +36,7 @@ Add the dependency to your module `build.gradle`:
 
 ```gradle
 dependencies {
-    implementation("com.github.marlboro-advance:mpv-android:2.0.1")
+    implementation("com.github.marlboro-advance:mpv-android:2.0.2")
 }
 ```
 
@@ -44,12 +44,12 @@ dependencies {
 
 1. Download the pre-built AAR from the [releases page](https://github.com/marlboro-advance/mpv-android/releases)
 2. Create a `libs` directory in your app module if it doesn't exist
-3. Copy the AAR file (e.g., `mpv-android-lib-v2.0.1.aar`) to the `libs` directory
+3. Copy the AAR file (e.g., `mpv-android-lib-v2.0.2.aar`) to the `libs` directory
 4. Add to your module `build.gradle`:
 
 ```gradle
 dependencies {
-    implementation(files("libs/mpv-android-lib-v2.0.1.aar"))
+    implementation(files("libs/mpv-android-lib-v2.0.2.aar"))
 }
 ```
 
