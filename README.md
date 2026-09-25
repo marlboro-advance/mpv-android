@@ -18,22 +18,40 @@ This library provides Android bindings for the mpv media player, allowing develo
 - Android 5.0 (API level 21) or higher
 - Android Studio with Gradle support
 
-## Installation
+### Option 1: Via JitPack (Recommended)
 
-Just one simple step:
-
-1. Download the pre-built AAR from the [releases page](https://github.com/marlboro-advance/mpvlib/releases)
-2. Create a `libs` directory in your app module if it doesn't exist
-3. Copy the AAR file (e.g., `mpv-android-lib-v0.0.1.aar`) to the `libs` directory
-4. Add this single line to your module-level build.gradle:
+Add the JitPack repository to your root `settings.gradle` or root `build.gradle`:
 
 ```gradle
-dependencies {
-    implementation(files("libs/mpv-android-lib-v0.0.1.aar"))
+dependencyResolutionManagement {
+    repositories {
+        google()
+        mavenCentral()
+        maven { url = uri("https://jitpack.io") }
+    }
 }
 ```
 
-That's it! No other configuration is needed.
+Add the dependency to your module `build.gradle`:
+
+```gradle
+dependencies {
+    implementation("com.github.marlboro-advance:mpv-android:2.0.0")
+}
+```
+
+### Option 2: Pre-built AAR
+
+1. Download the pre-built AAR from the [releases page](https://github.com/marlboro-advance/mpv-android/releases)
+2. Create a `libs` directory in your app module if it doesn't exist
+3. Copy the AAR file (e.g., `mpv-android-lib-v2.0.0.aar`) to the `libs` directory
+4. Add to your module `build.gradle`:
+
+```gradle
+dependencies {
+    implementation(files("libs/mpv-android-lib-v2.0.0.aar"))
+}
+```
 
 ## Usage
 

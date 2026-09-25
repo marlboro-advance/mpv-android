@@ -75,5 +75,3 @@ val keyMapping = mapOf(
     KEYCODE_PROG_YELLOW to "F15",
     KEYCODE_PROG_BLUE to "F16",
 )
-
-val KeyMapping = keyMapping

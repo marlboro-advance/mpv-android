@@ -1,0 +1,17 @@
+jdk:
+  - openjdk17
+
+before_install:
+  - sudo apt-get update && sudo apt-get install -y autoconf pkgconf libtool ninja-build python3-pip gperf nasm
+  - sudo pip3 install meson --break-system-packages || sudo pip3 install meson
+  - chmod +x buildscripts/*.sh buildscripts/include/*.sh buildscripts/scripts/*.sh
+
+install:
+  - cd buildscripts
+  - IN_CI=1 ./ci.sh install
+  - IN_CI=1 ./ci.sh build
+  - cd ..
+  - ./gradlew publishToMavenLocal -PGROUP=com.github.marlboro-advance -PVERSION=${VERSION:-$GIT_TAG} -x test
+
+artifacts:
+  - app/build/outputs/aar/*.aar
