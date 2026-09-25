@@ -1,10 +1,11 @@
 apply plugin: 'com.android.library'
 apply plugin: 'maven-publish'
+apply plugin: 'signing'
 
 ext.abiCodes = ["armeabi-v7a": 1, "arm64-v8a": 2, "x86": 3, "x86_64": 4]
 ext.universalBase = 8000
 
-version = "2.0.3"
+version = project.findProperty("VERSION") ?: System.getenv("VERSION_TAG")?.replaceFirst("^v", "") ?: "1.0.0"
 
 android {
     namespace 'is.xyz.mpv'
@@ -14,7 +15,7 @@ android {
         minSdkVersion 24
         targetSdk = 36
 
-        versionCode 42
+        versionCode 100
         versionName version
 
         // Load information about the NDK to use
@@ -53,16 +54,62 @@ android {
     }
 }
 
+tasks.register('javadocJar', Jar) {
+    archiveClassifier.set('javadoc')
+}
+
 afterEvaluate {
     publishing {
         publications {
             release(MavenPublication) {
                 from components.release
+                artifact(tasks.named('javadocJar'))
 
-                groupId = project.findProperty("GROUP") ?: "com.github.marlboro-advance"
+                groupId = "io.github.marlboro-advance"
                 artifactId = "mpv-android"
-                version = project.findProperty("VERSION") ?: project.version
+                version = project.version
+
+                pom {
+                    name = "mpv-android"
+                    description = "Android library for mpv media player with hardware decoding, Vulkan, and Kotlin Flow bindings."
+                    url = "https://github.com/marlboro-advance/mpv-android"
+                    licenses {
+                        license {
+                            name = "GNU Lesser General Public License, version 2.1 or later"
+                            url = "https://www.gnu.org/licenses/lgpl-2.1.html"
+                        }
+                    }
+                    developers {
+                        developer {
+                            id = "marlboro-advance"
+                            name = "MarlboroAdvance"
+                            email = "marlboroadvance@zohomail.in"
+                            organization = "marlboro-advance"
+                            organizationUrl = "https://github.com/marlboro-advance"
+                        }
+                    }
+                    scm {
+                        connection = "scm:git:git://github.com/marlboro-advance/mpv-android.git"
+                        developerConnection = "scm:git:ssh://github.com:marlboro-advance/mpv-android.git"
+                        url = "https://github.com/marlboro-advance/mpv-android"
+                    }
+                }
             }
+        }
+        repositories {
+            maven {
+                name = "buildDir"
+                url = layout.buildDirectory.dir("repo")
+            }
+        }
+    }
+
+    signing {
+        def signingKey = findProperty("signingInMemoryKey") ?: System.getenv("SIGNING_KEY")
+        def signingPassword = findProperty("signingInMemoryPassword") ?: System.getenv("SIGNING_PASSWORD")
+        if (signingKey) {
+            useInMemoryPgpKeys(signingKey, signingPassword)
+            sign publishing.publications.release
         }
     }
 }
@@ -71,3 +118,4 @@ dependencies {
     implementation "org.jetbrains.kotlin:kotlin-stdlib:$kotlin_version"
     implementation 'androidx.appcompat:appcompat:1.7.1'
 }
+

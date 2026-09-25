@@ -16,10 +16,21 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: temurin
+
+      - name: Get tag name
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            RAW_TAG="${GITHUB_REF#refs/tags/}"
+          else
+            RAW_TAG="v1.0.0"
+          fi
+          echo "VERSION_TAG=$RAW_TAG" >> $GITHUB_ENV
+          echo "MAVEN_VERSION=${RAW_TAG#v}" >> $GITHUB_ENV
 
       - name: Export env vars
         run: buildscripts/include/ci.sh export >>$GITHUB_ENV
@@ -27,7 +38,7 @@ jobs:
       - name: Install deps
         run: |
           sudo apt-get update
-          sudo apt-get install autoconf pkg-config libtool ninja-build python3-pip nasm gperf
+          sudo apt-get install -y autoconf pkg-config libtool ninja-build python3-pip nasm gperf zip curl
           sudo pip3 install meson
 
       - name: Build the release artifacts
@@ -44,11 +55,23 @@ jobs:
         env:
           GRADLE_OPTS: -Xmx4G
 
-      - name: Get tag name
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: Publish and Upload to Maven Central Portal
+        env:
+          SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
+          SIGNING_PASSWORD: ${{ secrets.SIGNING_PASSWORD }}
+          MAVEN_CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          MAVEN_CENTRAL_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
         run: |
-          set -x
-          echo "VERSION_TAG=${GITHUB_REF/refs\/tags\//}" >> $GITHUB_ENV
+          set -e
+          ./gradlew :app:publishReleasePublicationToBuildDirRepository
+          cd app/build/repo
+          zip -r ../central-bundle.zip .
+          cd ../../..
+          TOKEN=$(printf "%s:%s" "$MAVEN_CENTRAL_USERNAME" "$MAVEN_CENTRAL_PASSWORD" | base64 -w 0)
+          echo "Uploading bundle to Sonatype Central Portal..."
+          curl --fail-with-body -X POST "https://central.sonatype.com/api/v1/publisher/upload?publishingType=AUTOMATIC" \
+            -H "Authorization: Bearer $TOKEN" \
+            -F "bundle=@app/build/central-bundle.zip"
 
       - name: Copy build artifacts
         if: startsWith(github.ref, 'refs/tags/')
@@ -63,13 +86,15 @@ jobs:
           tag_name: ${{ env.VERSION_TAG }}
           name: mpv-android-lib ${{ env.VERSION_TAG }}
           body: |
-            library version ${{ env.VERSION_TAG }}
+            ### mpv-android-lib ${{ env.VERSION_TAG }}
+
+            #### Maven Central Coordinates
+            ```gradle
+            implementation("io.github.marlboro-advance:mpv-android:${{ env.MAVEN_VERSION }}")
+            ```
+
+            Includes all native ABIs (`arm64-v8a`, `armeabi-v7a`, `x86`, `x86_64`) with libmpv and Vulkan support.
           files: |
             mpv-android-lib-${{ env.VERSION_TAG }}.aar
           draft: false
           prerelease: false
-
-      - name: Trigger JitPack build
-        if: startsWith(github.ref, 'refs/tags/')
-        run: |
-          curl -s "https://jitpack.io/api/builds/com.github.marlboro-advance/mpv-android/${{ env.VERSION_TAG }}" > /dev/null || true
