@@ -56,16 +56,7 @@ object Utils {
 
     fun copyAssets(context: Context) {
         val assetManager = context.assets
-        val files = mutableListOf("cacert.pem")
-        try {
-            val assetList = assetManager.list("") ?: emptyArray()
-            if (assetList.contains("subfont.ttf")) {
-                files.add("subfont.ttf")
-            }
-        } catch (e: IOException) {
-            Log.w(TAG, "Failed to list assets", e)
-        }
-
+        val files = arrayOf("cacert.pem")
         val configDir = context.filesDir.path
         for (filename in files) {
             var ins: InputStream? = null
@@ -89,6 +80,9 @@ object Utils {
                 out?.close()
             }
         }
+
+        // we used to ship this, but it's no longer needed
+        File("$configDir/subfont.ttf").delete()
 
         writeFontsConf(context, File("$configDir/fonts.conf"))
     }
