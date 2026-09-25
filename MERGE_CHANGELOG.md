@@ -28,7 +28,7 @@ This document provides a detailed breakdown of all changes, updates, integration
   * Bumped `androidx.appcompat:appcompat` to `1.7.1`.
 * **Packaging & Publishing**:
   * Configured `sourceSets.main.jniLibs.srcDirs = ['src/main/libs']` to ensure `.so` libraries from `ndk-build` are packaged into the output AAR.
-  * Added `maven-publish` plugin with release publication metadata for JitPack.
+  * Added `maven-publish` and `signing` plugins with release publication metadata and GPG signing for Maven Central.
   * Loaded `ndk.properties` for NDK path detection.
 
 #### 2. `app/src/main/java/is/xyz/mpv/BaseMPVView.kt`
@@ -128,5 +128,5 @@ This document provides a detailed breakdown of all changes, updates, integration
 * Upgraded Android Gradle Plugin to `9.2.1`.
 * Upgraded Kotlin Gradle Plugin to `2.2.21`.
 
-#### 3. `jitpack.yml`
-* Added automated JitPack configuration to compile native dependencies via `ci.sh` before running `publishToMavenLocal`.
+#### 3. Maven Central & Sonatype Portal Publishing
+* Automated Maven Central publishing with Sonatype Central Portal API integration, GPG signing, and complete POM metadata (`io.github.marlboro-advance:mpv-android`).

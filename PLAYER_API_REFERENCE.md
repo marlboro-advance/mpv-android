@@ -1,18 +1,17 @@
-# mpvlib Android: API Reference & Integration Guide (v2.0.3)
+# mpvlib Android: API Reference & Integration Guide (v1.0.0)
 
-> **Context for AI Models & Developers**: This document details the complete Kotlin/Android API for `com.github.marlboro-advance:mpv-android`. It covers core playback management, reactive Kotlin Coroutine StateFlow property observation, complex command execution via `MPVNode`, and direct hardware-accelerated thumbnail generation via `FastThumbnails`.
+> **Context for AI Models & Developers**: This document details the complete Kotlin/Android API for `io.github.marlboro-advance:mpv-android`. It covers core playback management, reactive Kotlin Coroutine StateFlow property observation, complex command execution via `MPVNode`, and direct hardware-accelerated thumbnail generation via `FastThumbnails`.
 
 ---
 
 ## 1. Dependency Setup
 
-### JitPack (`settings.gradle` or root `build.gradle`)
+### Maven Central (`settings.gradle` or root `build.gradle`)
 ```kotlin
 dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
-        maven { url = uri("https://jitpack.io") }
     }
 }
 ```
@@ -20,7 +19,7 @@ dependencyResolutionManagement {
 ### Module `build.gradle`
 ```kotlin
 dependencies {
-    implementation("com.github.marlboro-advance:mpv-android:2.0.3")
+    implementation("io.github.marlboro-advance:mpv-android:1.0.0")
 }
 ```
 
