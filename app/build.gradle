@@ -4,7 +4,7 @@ apply plugin: 'kotlin-android'
 ext.abiCodes = ["armeabi-v7a": 1, "arm64-v8a": 2, "x86": 3, "x86_64": 4]
 ext.universalBase = 8000
 
-version = "0.1.10"
+version = "2.0.0"
 
 android {
     namespace 'is.xyz.mpv'
@@ -14,7 +14,7 @@ android {
         minSdkVersion 24
         targetSdk = 36
 
-        versionCode 38
+        versionCode 39
         versionName version
 
         // Load information about the NDK to use
