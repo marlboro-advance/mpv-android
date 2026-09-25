@@ -8,14 +8,22 @@ version = "0.1.10"
 
 android {
     namespace 'is.xyz.mpv'
-    compileSdk 35
+    compileSdk = 36
 
     defaultConfig {
         minSdkVersion 24
-        targetSdkVersion 34
+        targetSdk = 36
 
         versionCode 38
         versionName version
+
+        // Load information about the NDK to use
+        def props = new Properties()
+        def propfile = new File(rootDir, 'ndk.properties')
+        if (propfile.exists())
+            props.load(new FileInputStream(propfile))
+        ndkVersion = props.getProperty('ndkVersion', '')
+        ndkPath = props.getProperty('ndkRoot', '')
     }
 
     buildFeatures {
@@ -34,7 +42,7 @@ android {
 
 dependencies {
     implementation "org.jetbrains.kotlin:kotlin-stdlib:$kotlin_version"
-    implementation 'androidx.appcompat:appcompat:1.7.0'
+    implementation 'androidx.appcompat:appcompat:1.7.1'
 }
 
 // Maven publishing code removed
